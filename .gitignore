@@ -26,3 +26,6 @@ android/.idea/
 # Setup logs
 .tools-setup.log
 *.log
+
+# Git worktrees
+.worktrees/

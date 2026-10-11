@@ -2,7 +2,8 @@
 # Keeps every toolchain, cache and temp file inside the project folder (nothing on C:).
 CP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export CP_ROOT
-export CP_TOOLS="$CP_ROOT/.tools"
+# CP_TOOLS can be preset (e.g. from a git worktree) to share one toolchain.
+export CP_TOOLS="${CP_TOOLS:-$CP_ROOT/.tools}"
 
 export JAVA_HOME="$CP_TOOLS/jdk"
 export ANDROID_HOME="$CP_TOOLS/android-sdk"
