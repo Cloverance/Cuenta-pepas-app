@@ -12,6 +12,7 @@ data class CalibrationSample(val plantId: String, val visible: Int, val manual: 
 
 /**
  * Visible -> real calibration. When [usable] is false every numeric field is null and [reason] says why (Spanish).
+ * [loocvMeanAbsPctError] can be null even when [usable] is true (no plant with manual > 0 and a defined leave-one-out ratio).
  * [skippedReplicates] counts bootstrap resamples dropped because they had no visible cherries (ratio undefined).
  */
 @Serializable
@@ -20,13 +21,17 @@ data class CalibrationResult(
     val k: Double?,
     val kCi: Interval?,
     val plantFactorInterval: Interval?,
-    val loocvMeanAbsPctError: Double?,
+    val loocvMeanAbsPctError: Double?, // null can occur even when usable = true
     val usable: Boolean,
     val reason: String?,
     val skippedReplicates: Int = 0,
 )
 
 object RatioCalibrator {
+    /**
+     * Fits the visible-to-manual ratio. Negative counts in [samples] throw IllegalArgumentException;
+     * callers in the app must validate input before calling.
+     */
     fun fit(
         samples: List<CalibrationSample>,
         minSamples: Int = 10,

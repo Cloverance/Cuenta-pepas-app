@@ -45,6 +45,9 @@ class BootstrapTest {
     fun nanValuesFail() { Bootstrap.percentile(doubleArrayOf(1.0, Double.NaN), 0.90) }
 
     @Test(expected = IllegalArgumentException::class)
+    fun positiveInfinityFails() { Bootstrap.percentile(doubleArrayOf(1.0, Double.POSITIVE_INFINITY), 0.90) }
+
+    @Test(expected = IllegalArgumentException::class)
     fun confidenceMustBeInsideUnitInterval() { Bootstrap.percentile(doubleArrayOf(1.0, 2.0), 1.0) }
 
     @Test fun intervalContainsAndWidth() {

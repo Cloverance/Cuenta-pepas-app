@@ -32,7 +32,7 @@ enum class LotStatus { INSUFFICIENT_EVIDENCE, VISIBLE_ONLY, CALIBRATED }
 /**
  * Lot harvest estimate. Numeric fields are null whenever they cannot be backed by evidence; null never means 0.
  * [coverage] and [plantsVisited] are facts about the walk and are reported in every state.
- * [skippedReplicates] counts bootstrap replicates dropped from at least one interval (no visible cherries).
+ * [skippedReplicates] counts bootstrap replicates dropped from at least one interval (a replicate with no visible cherries cannot form a ratio).
  */
 @Serializable
 data class LotEstimate(
@@ -43,6 +43,7 @@ data class LotEstimate(
     val maturityShare: List<Estimate>?,
     val totalCherries: Estimate?,
     val totalKg: Estimate?,
+    /** Factor only; never multiply by visible counts outside LotEstimator. Harvest figures must come with an interval. */
     val calibration: CalibrationResult,
     val skippedReplicates: Int,
     val notes: List<String>,
@@ -55,6 +56,10 @@ object LotEstimator {
     // Keeps the calibration resampling stream independent of the plant resampling stream.
     private const val CALIBRATION_STREAM_SALT = 0x5DEECE66DL
 
+    /**
+     * Estimates the lot. Negative counts in [input] (plant sides, calibration samples) throw IllegalArgumentException;
+     * callers in the app must validate input before calling.
+     */
     fun estimate(
         input: LotInput,
         minPlants: Int = 10,
@@ -183,7 +188,7 @@ object LotEstimator {
         } else if (maturityShare == null) {
             notes += "No se pudo calcular el intervalo de madurez: todas las réplicas quedaron sin pepas visibles"
         }
-        if (skipped > 0) notes += "Se descartaron $skipped de $replicates réplicas bootstrap sin pepas visibles"
+        if (skipped > 0) notes += "Se descartaron $skipped de $replicates réplicas bootstrap: quedaron descartadas de al menos un intervalo"
         notes += ASSUMPTION_NOTE
 
         return LotEstimate(status, n, coverage, visiblePerPlant, maturityShare, totalCherries, totalKg, calibration, skipped, notes)

@@ -9,7 +9,7 @@ object Bootstrap {
      */
     fun percentile(values: DoubleArray, confidence: Double): Interval {
         require(values.isNotEmpty()) { "values must not be empty" }
-        require(values.none { it.isNaN() }) { "values must not contain NaN" }
+        require(values.all { it.isFinite() }) { "values must be finite: NaN and infinities are rejected" }
         require(confidence > 0.0 && confidence < 1.0) { "confidence must be in (0, 1): $confidence" }
         val sorted = values.copyOf().also { it.sort() }
         val alpha = (1.0 - confidence) / 2.0

@@ -158,7 +158,7 @@ class LotEstimatorTest {
         assertEquals(LotStatus.CALIBRATED, e.status)
         assertTrue("skipped ${e.skippedReplicates}", e.skippedReplicates in 400..1100)
         assertTrue(e.totalCherries!!.ci.low.isFinite() && e.totalCherries!!.ci.high.isFinite())
-        assertTrue(e.notes.contains("Se descartaron ${e.skippedReplicates} de 2000 réplicas bootstrap sin pepas visibles"))
+        assertTrue(e.notes.contains("Se descartaron ${e.skippedReplicates} de 2000 réplicas bootstrap: quedaron descartadas de al menos un intervalo"))
         assertEquals(assumption, e.notes.last())
     }
 
