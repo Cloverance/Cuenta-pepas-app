@@ -30,6 +30,9 @@ DEFAULT_PRETRAINED = REPO_ROOT / "data" / "local" / "weights" / "yolox_nano_coco
 RUNS_DIR = REPO_ROOT / "runs"
 SMOKE_IMAGES = 32
 SPLITS = ("train", "val")
+# Same defaults as ml/exps/cuentapepas_nano.py reads; resolved here so run.json records the values actually used.
+DEFAULT_MULTISCALE = "1"
+DEFAULT_NO_AUG_EPOCHS = "15"
 
 
 @dataclass(frozen=True)
@@ -114,8 +117,9 @@ def torch_versions() -> dict:
         dist = importlib.metadata.distribution("torch")
         version_py = Path(dist.locate_file("torch/version.py"))
         info["cuda"] = runpy.run_path(str(version_py)).get("cuda")
-    except (importlib.metadata.PackageNotFoundError, OSError):
-        pass
+    except (importlib.metadata.PackageNotFoundError, OSError) as exc:
+        print(f"WARNING: torch version info unavailable, run.json versions incomplete: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
     return info
 
 
@@ -125,9 +129,12 @@ def gpu_info() -> dict | None:
             ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
             capture_output=True, text=True, check=True, timeout=30,
         ).stdout.strip().splitlines()
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"WARNING: GPU info unavailable, run.json gpu will be null: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return None
     if not out:
+        print("WARNING: nvidia-smi reported no GPU, run.json gpu will be null", file=sys.stderr)
         return None
     name, driver, memory = (part.strip() for part in out[0].split(","))
     return {"name": name, "driver": driver, "memory_total": memory}
@@ -160,10 +167,18 @@ def build_command(cfg: TrainConfig, run_dir: Path, python: str = sys.executable)
 def build_env(cfg: TrainConfig, dataset_dir: Path) -> dict[str, str]:
     """Exp overrides. PYTHONPATH is not used: the child runs with -I, and the bridge puts YOLOX on sys.path."""
     env = dict(os.environ)
+    # YOLOX's COCO evaluation writes temp files via tempfile.mkstemp; keep them under the project tools dir, not C:.
+    tmp = Path(os.environ.get("CP_TOOLS") or REPO_ROOT / ".tools") / "tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
     env.update({
         "CP_DATASET_DIR": str(dataset_dir),
         "CP_MAX_EPOCH": "1" if cfg.smoke else str(cfg.epochs),
         "CP_WORKERS": str(cfg.workers),
+        "CP_MULTISCALE": os.environ.get("CP_MULTISCALE", DEFAULT_MULTISCALE),
+        "CP_NO_AUG_EPOCHS": os.environ.get("CP_NO_AUG_EPOCHS", DEFAULT_NO_AUG_EPOCHS),
+        "TEMP": str(tmp),
+        "TMP": str(tmp),
+        "TMPDIR": str(tmp),
     })
     # On Windows loguru colourises stderr whenever TERM is set (Git Bash), even into a pipe; keep train.log plain.
     env.pop("TERM", None)
@@ -207,7 +222,10 @@ def prepare_run(cfg: TrainConfig, now: dt.datetime | None = None) -> tuple[Path,
     """Create the run directory and its run.json. Returns (run_dir, record, dataset_dir)."""
     if cfg.pretrained is not None and not cfg.pretrained.exists():
         raise FileNotFoundError(f"pretrained weights not found: {cfg.pretrained}; run: bash tools/get-pretrained.sh")
-    for required in (cfg.manifest, *(cfg.dataset / "annotations" / f"{s}.json" for s in SPLITS)):
+    if not cfg.exp_file.exists():
+        raise FileNotFoundError(f"experiment file not found: {cfg.exp_file}")
+    summary_path = cfg.manifest.with_suffix(".summary.json")
+    for required in (cfg.manifest, summary_path, *(cfg.dataset / "annotations" / f"{s}.json" for s in SPLITS)):
         if not required.exists():
             raise FileNotFoundError(f"{required} not found; run: cuentapepas build-dataset")
     now = now or _utc_now()
@@ -224,10 +242,9 @@ def prepare_run(cfg: TrainConfig, now: dt.datetime | None = None) -> tuple[Path,
         "dir": _rel(cfg.dataset),
         "manifest": _rel(cfg.manifest),
         "manifest_sha256": _sha256(cfg.manifest),
+        "summary": json.loads(summary_path.read_text(encoding="utf-8")),
+        "annotations_sha256": {s: _sha256(cfg.dataset / "annotations" / f"{s}.json") for s in SPLITS},
     }
-    summary_path = cfg.manifest.with_suffix(".summary.json")
-    if summary_path.exists():
-        dataset["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
     dataset_dir = cfg.dataset
     if cfg.smoke:
         dataset_dir = run_dir / "smoke_dataset"
@@ -239,6 +256,7 @@ def prepare_run(cfg: TrainConfig, now: dt.datetime | None = None) -> tuple[Path,
         "created_utc": now.isoformat(),
         "exp": cfg.exp_name,
         "exp_file": _rel(cfg.exp_file),
+        "exp_file_sha256": _sha256(cfg.exp_file),
         "git": git,
         "yolox": yolox_state(),
         "dataset": dataset,
@@ -265,9 +283,9 @@ def train(cfg: TrainConfig) -> int:
     cmd = build_command(cfg, run_dir)
     env = build_env(cfg, dataset_dir)
     record["command"] = cmd
-    record["env"] = {k: env[k] for k in ("CP_DATASET_DIR", "CP_MAX_EPOCH", "CP_WORKERS")}
-    # Optional exp overrides inherited from the caller's environment (see ml/exps/cuentapepas_nano.py).
-    record["env"].update({k: env[k] for k in ("CP_MULTISCALE", "CP_NO_AUG_EPOCHS") if k in env})
+    # Resolved exp overrides (see ml/exps/cuentapepas_nano.py), always recorded even when left at their defaults.
+    record["env"] = {k: env[k] for k in ("CP_DATASET_DIR", "CP_MAX_EPOCH", "CP_WORKERS",
+                                         "CP_MULTISCALE", "CP_NO_AUG_EPOCHS")}
     _write_json(run_dir / "run.json", record)
     print(f"run dir: {run_dir}", flush=True)
 

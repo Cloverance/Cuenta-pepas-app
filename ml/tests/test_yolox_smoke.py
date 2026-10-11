@@ -9,12 +9,11 @@ EXP_FILE = REPO_ROOT / "ml" / "exps" / "cuentapepas_nano.py"
 
 
 def _load_exp():
-    from cuentapepas.yolox_bridge import ensure_yolox
+    from cuentapepas.yolox_bridge import YOLOX_DIR, ensure_yolox
 
-    try:
-        ensure_yolox()
-    except RuntimeError as exc:  # no pinned checkout on this machine
-        pytest.skip(str(exc))
+    if not (YOLOX_DIR / "yolox" / "__init__.py").exists():  # checkout not vendored on this machine
+        pytest.skip(f"YOLOX not vendored at {YOLOX_DIR}; run: bash tools/setup-yolox.sh")
+    ensure_yolox()  # a commit mismatch or missing patch must fail, not skip
     spec = importlib.util.spec_from_file_location("cuentapepas_nano", EXP_FILE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -38,11 +37,16 @@ def test_nano_exp_outputs_5040_anchors_with_5_classes():
 
 @pytest.mark.slow
 def test_nano_exp_uses_depthwise_nano_backbone_and_custom_split_names(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
     monkeypatch.setenv("CP_DATASET_DIR", str(tmp_path))
     monkeypatch.setenv("CP_MAX_EPOCH", "3")
     monkeypatch.setenv("CP_WORKERS", "0")
     exp = _load_exp()
     assert (exp.depth, exp.width) == (0.33, 0.25)
+    # Nano = depthwise separable convs: groups == in_channels > 1 somewhere in the backbone.
+    depthwise = [m for m in exp.get_model().modules()
+                 if isinstance(m, torch.nn.Conv2d) and m.groups == m.in_channels > 1]
+    assert depthwise
     assert exp.data_dir == str(tmp_path)
     assert exp.max_epoch == 3 and exp.data_num_workers == 0
     assert (exp.train_ann, exp.val_ann) == ("train.json", "val.json")

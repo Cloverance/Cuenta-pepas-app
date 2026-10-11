@@ -1,12 +1,13 @@
 import datetime as dt
 import json
+import sys
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
 from cuentapepas import train as train_mod
-from cuentapepas.train import TrainConfig, build_command, build_env, make_subset, prepare_run
+from cuentapepas.train import TrainConfig, build_command, build_env, gpu_info, make_subset, prepare_run, train
 
 
 def _coco_dataset(root: Path, n_per_split: int) -> None:
@@ -51,11 +52,83 @@ def test_command_runs_isolated_fp32_with_seed_and_run_dir_opts(tmp_path):
 
 
 def test_env_sets_exp_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("CP_TOOLS", str(tmp_path / "tools"))
     monkeypatch.setenv("TERM", "xterm")
     assert build_env(TrainConfig(epochs=120, workers=0), tmp_path)["CP_MAX_EPOCH"] == "120"
     assert "TERM" not in build_env(TrainConfig(), tmp_path)  # loguru would colourise train.log
     env = build_env(TrainConfig(smoke=True, workers=0), tmp_path)
     assert (env["CP_MAX_EPOCH"], env["CP_WORKERS"], env["CP_DATASET_DIR"]) == ("1", "0", str(tmp_path))
+
+
+def test_env_records_resolved_exp_defaults_and_inherited_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("CP_TOOLS", str(tmp_path / "tools"))
+    monkeypatch.delenv("CP_MULTISCALE", raising=False)
+    monkeypatch.delenv("CP_NO_AUG_EPOCHS", raising=False)
+    env = build_env(TrainConfig(), tmp_path)
+    assert (env["CP_MULTISCALE"], env["CP_NO_AUG_EPOCHS"]) == ("1", "15")
+    monkeypatch.setenv("CP_MULTISCALE", "0")
+    monkeypatch.setenv("CP_NO_AUG_EPOCHS", "4")
+    env = build_env(TrainConfig(), tmp_path)
+    assert (env["CP_MULTISCALE"], env["CP_NO_AUG_EPOCHS"]) == ("0", "4")
+
+
+def test_env_points_temp_dirs_into_the_tools_dir(tmp_path, monkeypatch):
+    tools = tmp_path / "tools"
+    monkeypatch.setenv("CP_TOOLS", str(tools))
+    env = build_env(TrainConfig(), tmp_path)
+    assert env["TEMP"] == env["TMP"] == env["TMPDIR"] == str(tools / "tmp")
+    assert (tools / "tmp").is_dir()
+
+
+def test_gpu_info_warns_with_the_exception_and_returns_none(monkeypatch, capsys):
+    def no_nvidia_smi(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file", "nvidia-smi")
+
+    monkeypatch.setattr(train_mod.subprocess, "run", no_nvidia_smi)
+    assert gpu_info() is None
+    err = capsys.readouterr().err
+    assert err.startswith("WARNING:") and "nvidia-smi" in err
+
+
+def test_prepare_run_requires_the_dataset_summary(tmp_path):
+    dataset = tmp_path / "ds"
+    _coco_dataset(dataset, n_per_split=2)
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text("{}\n", encoding="utf-8")
+    cfg = TrainConfig(dataset=dataset, manifest=manifest, pretrained=None, runs_dir=tmp_path / "runs")
+    with pytest.raises(FileNotFoundError, match="summary.json"):
+        prepare_run(cfg)
+    assert not (tmp_path / "runs").exists()
+
+
+def test_train_returns_the_trainer_exit_code_and_records_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("CP_TOOLS", str(tmp_path / "tools"))
+    monkeypatch.setattr(train_mod, "ensure_yolox", lambda: None)
+    monkeypatch.setattr(train_mod, "git_state", lambda repo=None: {"commit": "c" * 40, "dirty": False,
+                                                                    "status_porcelain": []})
+    monkeypatch.setattr(train_mod, "yolox_state", lambda: {"commit": "pinned", "local_changes": []})
+    monkeypatch.setattr(train_mod, "gpu_info", lambda: None)
+    monkeypatch.setattr(train_mod, "torch_versions", lambda: {"torch": None, "cuda": None})
+    failing = [sys.executable, "-c", "import sys; sys.exit(3)"]
+    monkeypatch.setattr(train_mod, "build_command", lambda cfg, run_dir, python=sys.executable: failing)
+
+    dataset = tmp_path / "ds"
+    _coco_dataset(dataset, n_per_split=2)
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text('{"file": "x"}\n', encoding="utf-8")
+    manifest.with_suffix(".summary.json").write_text("{}", encoding="utf-8")
+    exp = tmp_path / "exp.py"
+    exp.write_text("class Exp: pass\n", encoding="utf-8")
+    runs = tmp_path / "runs"
+    cfg = TrainConfig(dataset=dataset, manifest=manifest, exp_file=exp, pretrained=None, runs_dir=runs)
+
+    assert train(cfg) == 3
+
+    (run_dir,) = runs.iterdir()
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["exit_code"] == 3
+    assert record["command"] == failing
+    assert (run_dir / "train.log").exists()
 
 
 def test_prepare_run_fails_before_creating_the_run_dir_when_inputs_are_missing(tmp_path):
@@ -91,6 +164,9 @@ def test_prepare_run_records_provenance(tmp_path, monkeypatch):
     assert len(record["git"]["commit"]) == 40 and isinstance(record["git"]["dirty"], bool)
     assert len(record["dataset"]["manifest_sha256"]) == 64
     assert record["dataset"]["summary"] == {"n_images": {"train": 40}}
+    assert set(record["dataset"]["annotations_sha256"]) == {"train", "val"}
+    assert all(len(h) == 64 for h in record["dataset"]["annotations_sha256"].values())
+    assert len(record["exp_file_sha256"]) == 64
     assert record["dataset"]["smoke_subset"]["n_images"] == {"train": 32, "val": 32}
     assert record["args"]["epochs"] == 1 and record["args"]["fp16"] is False
     assert len(record["args"]["pretrained_sha256"]) == 64
