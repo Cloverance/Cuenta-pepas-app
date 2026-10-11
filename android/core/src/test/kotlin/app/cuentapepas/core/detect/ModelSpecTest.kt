@@ -1,0 +1,59 @@
+package app.cuentapepas.core.detect
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ModelSpecTest {
+    private fun exampleJson() = javaClass.getResource("/model_example.json")!!.readText()
+
+    @Test fun parsesPlanAExample() {
+        val spec = ModelSpec.parse(exampleJson())
+        assertEquals("cuentapepas-nano-v1", spec.modelId)
+        assertEquals(1, spec.taxonomySchemaVersion)
+        assertEquals(640, spec.input.width); assertEquals(384, spec.input.height)
+        assertEquals(640, spec.inputWidth); assertEquals(384, spec.inputHeight)
+        assertEquals("BGR", spec.input.channelOrder); assertEquals(114, spec.input.padValue)
+        assertEquals(listOf("green", "semi_ripe", "ripe", "overripe", "dry"), spec.classes)
+        assertEquals(5, spec.numClasses)
+        assertEquals(listOf(1, 5040, 10), spec.output.shape)
+        assertEquals(5040, spec.numAnchors)
+        assertFalse(spec.output.transposed)
+        assertFalse(spec.transposed)
+        assertEquals(0.30f, spec.postprocess.defaultScoreThreshold, 1e-6f)
+        assertEquals(0.30f, spec.defaultScoreThreshold, 1e-6f)
+        assertEquals(0.45f, spec.postprocess.defaultNmsIou, 1e-6f)
+        assertEquals(300, spec.postprocess.maxDetections)
+        assertEquals("cuentapepas_nano_fp16.tflite", spec.files.fp16.name)
+        assertEquals("cuentapepas_nano_fp32.tflite", spec.files.fp32.name)
+    }
+
+    @Test fun transposedOutputFlagIsRead() {
+        val json = exampleJson()
+            .replace("\"shape\": [1, 5040, 10]", "\"shape\": [1, 10, 5040], \"transposed\": true")
+        assertTrue("test setup: replacement must apply", json.contains("\"transposed\": true"))
+        val spec = ModelSpec.parse(json)
+        assertTrue(spec.output.transposed)
+        assertTrue(spec.transposed)
+        assertEquals(5040, spec.numAnchors)
+        assertEquals(5, spec.numClasses)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun outputChannelsMustMatchClassCount() {
+        // 6 classes declared but the output still has 5 + 5 channels.
+        ModelSpec.parse(exampleJson().replace("\"dry\"]", "\"dry\", \"extra\"]"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun transposedFlagMustMatchShape() {
+        // shape says [1, 5040, 10] but transposed=true makes the channel dim 5040.
+        ModelSpec.parse(exampleJson().replace("\"shape\": [1, 5040, 10]", "\"shape\": [1, 5040, 10], \"transposed\": true"))
+    }
+
+    @Test fun unknownKeysAreIgnored() {
+        val json = exampleJson().replaceFirst("{", "{\"future_field\": {\"a\": 1},")
+        assertEquals(5040, ModelSpec.parse(json).numAnchors)
+    }
+}
