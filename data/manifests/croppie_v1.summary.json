@@ -1,27 +1,32 @@
 {
   "seed": 20261011,
   "val_fraction": 0.15,
+  "group_gap_seconds": 300.0,
   "n_images": {
-    "train": 7072,
-    "val": 1261
+    "train": 7382,
+    "val": 951
   },
   "n_originals": {
-    "train": 536,
-    "val": 95
+    "train": 559,
+    "val": 72
+  },
+  "n_groups": {
+    "train": 136,
+    "val": 24
   },
   "boxes_per_class": {
     "train": {
-      "green": 42640,
-      "semi_ripe": 15148,
-      "ripe": 62857,
-      "overripe": 5762,
+      "green": 42395,
+      "semi_ripe": 15809,
+      "ripe": 67588,
+      "overripe": 6337,
       "dry": 0
     },
     "val": {
-      "green": 7072,
-      "semi_ripe": 1904,
-      "ripe": 12133,
-      "overripe": 1208,
+      "green": 7317,
+      "semi_ripe": 1243,
+      "ripe": 7402,
+      "overripe": 633,
       "dry": 0
     }
   },
