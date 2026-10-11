@@ -163,4 +163,24 @@ class QualityAdvisorTest {
         assertThrows(IllegalArgumentException::class.java) { QualityThresholds(onFrames = 0) }
         assertThrows(IllegalArgumentException::class.java) { QualityThresholds(offFrames = 0) }
     }
+
+    @Test
+    fun nonFiniteValuesCountAsViolations() {
+        fun warningsAfter5(sample: QualitySample): Set<QualityWarning> {
+            val advisor = QualityAdvisor(QualityThresholds())
+            var last: Set<QualityWarning> = emptySet()
+            repeat(5) { last = advisor.update(sample) }
+            return last
+        }
+        for (v in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
+            assertEquals("sharpness $v", setOf(QualityWarning.BLURRY), warningsAfter5(good.copy(sharpness = v)))
+            assertEquals("speed $v", setOf(QualityWarning.TOO_FAST), warningsAfter5(good.copy(frameWidthsPerSecond = v)))
+            assertEquals("fraction $v", setOf(QualityWarning.BACKLIGHT), warningsAfter5(good.copy(brightFraction = v)))
+            assertEquals(
+                "brightness $v",
+                setOf(QualityWarning.TOO_DARK, QualityWarning.BACKLIGHT),
+                warningsAfter5(good.copy(meanBrightness = v)),
+            )
+        }
+    }
 }

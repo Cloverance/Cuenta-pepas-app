@@ -33,6 +33,10 @@ data class QualityThresholds(
 /**
  * Measurements of one frame.
  *
+ * A NaN or infinite field means the measurement failed and is never treated as good: it counts as
+ * a violation of every check that uses it ([sharpness] -> BLURRY, [meanBrightness] -> TOO_DARK and
+ * BACKLIGHT, [brightFraction] -> BACKLIGHT, [frameWidthsPerSecond] -> TOO_FAST).
+ *
  * @property frameWidthsPerSecond camera speed expressed as frame widths travelled per second.
  */
 data class QualitySample(
@@ -59,10 +63,14 @@ class QualityAdvisor(private val thresholds: QualityThresholds = QualityThreshol
 
     /** Feeds one frame and returns a snapshot of the warnings that are active afterwards. */
     fun update(s: QualitySample): Set<QualityWarning> {
-        faulty[QualityWarning.TOO_FAST.ordinal] = s.frameWidthsPerSecond > thresholds.maxFrameWidthsPerSecond
-        faulty[QualityWarning.BLURRY.ordinal] = s.sharpness < thresholds.minSharpness
-        faulty[QualityWarning.TOO_DARK.ordinal] = s.meanBrightness < thresholds.minBrightness
-        faulty[QualityWarning.BACKLIGHT.ordinal] =
+        val badSpeed = !s.frameWidthsPerSecond.isFinite()
+        val badSharp = !s.sharpness.isFinite()
+        val badBrightness = !s.meanBrightness.isFinite()
+        val badFraction = !s.brightFraction.isFinite()
+        faulty[QualityWarning.TOO_FAST.ordinal] = badSpeed || s.frameWidthsPerSecond > thresholds.maxFrameWidthsPerSecond
+        faulty[QualityWarning.BLURRY.ordinal] = badSharp || s.sharpness < thresholds.minSharpness
+        faulty[QualityWarning.TOO_DARK.ordinal] = badBrightness || s.meanBrightness < thresholds.minBrightness
+        faulty[QualityWarning.BACKLIGHT.ordinal] = badBrightness || badFraction ||
             s.meanBrightness > thresholds.maxBrightness || s.brightFraction > thresholds.maxBrightFraction
 
         val result = EnumSet.noneOf(QualityWarning::class.java)
