@@ -38,17 +38,37 @@ def _parse_label_file(path: Path) -> tuple[Box, ...]:
         try:
             if len(parts) != 5:
                 raise ValueError(f"expected 5 fields, got {len(parts)}")
-            boxes.append((int(parts[0]), *(float(p) for p in parts[1:])))
+            box: Box = (int(parts[0]), *(float(p) for p in parts[1:]))
         except ValueError as exc:
             raise ValueError(f"{path}:{line_no}: malformed label line {line!r} ({exc})") from exc
+        _, cx, cy, w, h = box
+        # written so that NaN fails every comparison and is rejected too
+        if not (0.0 < w <= 1.0 and 0.0 < h <= 1.0 and 0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0):
+            raise ValueError(
+                f"{path}:{line_no}: box out of range in {line!r} (need 0 < w <= 1, 0 < h <= 1, 0 <= cx <= 1, 0 <= cy <= 1)"
+            )
+        boxes.append(box)
     return tuple(boxes)
 
 
 def read_croppie_split(raw_root: Path, split: str) -> Iterator[CroppieImage]:
-    """Yield every image of an original split in file-name order. An empty label file means no boxes."""
+    """Yield every image of an original split in file-name order. An empty label file means no boxes.
+
+    Raises FileNotFoundError if the split directories are missing or an image has no label file, and
+    ValueError for label files without an image or boxes that fall outside the normalized range.
+    """
     images_dir = raw_root / split / split / "images"
     labels_dir = raw_root / split / split / "labels"
-    for image_path in sorted(images_dir.glob("*.jpg")):
+    for directory in (images_dir, labels_dir):
+        if not directory.is_dir():
+            raise FileNotFoundError(f"Croppie '{split}' directory not found: {directory}")
+    image_paths = sorted(images_dir.glob("*.jpg"))
+    image_stems = {p.stem for p in image_paths}
+    orphans = [p for p in sorted(labels_dir.glob("*.txt")) if p.stem not in image_stems]
+    if orphans:
+        raise ValueError(f"label file without a matching image in {images_dir}: {orphans[0]}"
+                         + (f" (and {len(orphans) - 1} more)" if len(orphans) > 1 else ""))
+    for image_path in image_paths:
         label_path = labels_dir / f"{image_path.stem}.txt"
         if not label_path.is_file():
             raise FileNotFoundError(f"missing label file for image {image_path}: expected {label_path}")

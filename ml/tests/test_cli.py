@@ -15,8 +15,9 @@ def _make(root, split, stem, rows):
 
 def test_build_dataset_command_writes_manifest_and_summary(tmp_path, capsys):
     raw = tmp_path / "raw"
-    _make(raw, "train", "301c0", ["3 0.5 0.5 0.1 0.1"])
-    _make(raw, "val", "302c0", ["1 0.5 0.5 0.1 0.1"])
+    # two photos 2 h apart (ids are epoch milliseconds): two capture sessions, so both splits get one
+    _make(raw, "train", "1687438155343c0", ["3 0.5 0.5 0.1 0.1"])
+    _make(raw, "val", "1687445355343c0", ["1 0.5 0.5 0.1 0.1"])
     manifest = tmp_path / "manifests" / "demo.jsonl"
     code = cli.main(["build-dataset", "--source", "croppie_coffee_ug", "--raw", str(raw),
                      "--out", str(tmp_path / "out"), "--manifest", str(manifest)])

@@ -31,3 +31,17 @@ def test_blocked_sources_cannot_be_used(tmp_path):
     src = load_source("blk", sources_dir=tmp_path)
     with pytest.raises(CatalogError):
         src.require_trainable()
+
+
+@pytest.mark.parametrize("content", ["", "# only a comment\n", "- a\n- b\n", "just a string\n"])
+def test_rejects_empty_or_non_mapping_yaml(tmp_path, content):
+    (tmp_path / "weird.yaml").write_text(content, encoding="utf-8")
+    with pytest.raises(CatalogError, match="mapping"):
+        load_source("weird", sources_dir=tmp_path)
+
+
+def test_rejects_name_that_differs_from_file_stem(tmp_path):
+    (tmp_path / "file_name.yaml").write_text(
+        "name: other_name\nlicense: MIT\nstatus: usable\nclass_map: {}\nsource_classes: {}\n", encoding="utf-8")
+    with pytest.raises(CatalogError, match="other_name"):
+        load_source("file_name", sources_dir=tmp_path)

@@ -35,9 +35,13 @@ class Source:
 def load_source(name: str, sources_dir: Path = SOURCES_DIR) -> Source:
     path = sources_dir / f"{name}.yaml"
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise CatalogError(f"{path.name}: the file must be a YAML mapping, got {type(raw).__name__}")
     missing = [k for k in REQUIRED if k not in raw]
     if missing:
         raise CatalogError(f"{path.name}: missing fields {missing}")
+    if raw["name"] != path.stem:
+        raise CatalogError(f"{path.name}: name '{raw['name']}' must match the file name '{path.stem}'")
     if raw["status"] not in STATUSES:
         raise CatalogError(f"{path.name}: invalid status '{raw['status']}'")
     return Source(
