@@ -145,8 +145,12 @@ class YoloxPostprocessorTest {
             assertEquals("count for $k", expected.size, dets.size)
             expected.forEachIndexed { i, e ->
                 val box = e.jsonObject["box"]!!.jsonArray.map { it.jsonPrimitive.float }
-                assertEquals(e.jsonObject["cls"]!!.jsonPrimitive.int, dets[i].cls)
-                assertEquals(box[0], dets[i].box.x1, 1e-3f); assertEquals(box[3], dets[i].box.y2, 1e-3f)
+                assertEquals("cls $k[$i]", e.jsonObject["cls"]!!.jsonPrimitive.int, dets[i].cls)
+                assertEquals("score $k[$i]", e.jsonObject["score"]!!.jsonPrimitive.float, dets[i].score, 1e-4f)
+                assertEquals("x1 $k[$i]", box[0], dets[i].box.x1, 1e-3f)
+                assertEquals("y1 $k[$i]", box[1], dets[i].box.y1, 1e-3f)
+                assertEquals("x2 $k[$i]", box[2], dets[i].box.x2, 1e-3f)
+                assertEquals("y2 $k[$i]", box[3], dets[i].box.y2, 1e-3f)
             }
         }
     }
