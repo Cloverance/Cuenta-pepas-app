@@ -1,0 +1,24 @@
+# Taxonomía de madurez de pepas de café. Índices INMUTABLES: solo se agregan clases al final
+# y cualquier cambio sube schema_version (ver docs/adr/0003).
+schema_version: 1
+classes:
+  - index: 0
+    id: green
+    name_es: verde
+    description_es: Fruto verde, sin viraje de color.
+  - index: 1
+    id: semi_ripe
+    name_es: pintón
+    description_es: Viraje parcial amarillo/naranja/rojo en menos de ~75 % de la superficie.
+  - index: 2
+    id: ripe
+    name_es: maduro (cereza)
+    description_es: Rojo (o amarillo en variedades amarillas) uniforme, turgente.
+  - index: 3
+    id: overripe
+    name_es: sobremaduro
+    description_es: Rojo oscuro/vinotinto, puede verse arrugado.
+  - index: 4
+    id: dry
+    name_es: seco
+    description_es: Café oscuro o negro, seco en la rama.
