@@ -7,3 +7,4 @@ gradlew text eol=lf
 *.png binary
 *.jpg binary
 *.tflite binary
+*.patch text eol=lf

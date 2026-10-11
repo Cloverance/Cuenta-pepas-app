@@ -1,0 +1,29 @@
+Subject: [cuentapepas] YOLOX COCOEvaluator: use the reference pycocotools COCOeval
+
+YOLOX 6ddff48 imports COCOeval_opt unconditionally and only falls back on ImportError, but
+instantiating it JIT-builds a C++ op (torch.utils.cpp_extension: needs Ninja and a C++ compiler,
+and writes to the user cache dir on C:). Without them the first evaluation raises RuntimeError
+and training aborts. Always use pycocotools, the implementation `cuentapepas eval` reports.
+Applied by tools/setup-yolox.sh.
+---
+diff --git a/yolox/evaluators/coco_evaluator.py b/yolox/evaluators/coco_evaluator.py
+index e218c74..1cad277 100644
+--- a/yolox/evaluators/coco_evaluator.py
++++ b/yolox/evaluators/coco_evaluator.py
+@@ -290,12 +290,10 @@ class COCOEvaluator:
+                 _, tmp = tempfile.mkstemp()
+                 json.dump(data_dict, open(tmp, "w"))
+                 cocoDt = cocoGt.loadRes(tmp)
+-            try:
+-                from yolox.layers import COCOeval_opt as COCOeval
+-            except ImportError:
+-                from pycocotools.cocoeval import COCOeval
+-
+-                logger.warning("Use standard COCOeval.")
++            # cuentapepas patch: `COCOeval_opt` always imports, but instantiating it JIT-builds a C++ op
++            # (needs Ninja + a C++ compiler, writes to the user cache dir) and raises RuntimeError without them.
++            # Use the reference pycocotools implementation, the same one `cuentapepas eval` reports.
++            from pycocotools.cocoeval import COCOeval
+ 
+             cocoEval = COCOeval(cocoGt, cocoDt, annType[1])
+             cocoEval.evaluate()

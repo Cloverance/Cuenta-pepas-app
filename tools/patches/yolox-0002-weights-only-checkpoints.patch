@@ -1,0 +1,23 @@
+Subject: [cuentapepas] YOLOX Trainer: store AP values as float in checkpoints
+
+COCOeval returns numpy.float64, which torch.load(weights_only=True) - the default since torch 2.6
+and what YOLOX --resume uses - refuses to unpickle. Plain floats keep resume and export loading safe.
+Applied by tools/setup-yolox.sh.
+---
+diff --git a/yolox/core/trainer.py b/yolox/core/trainer.py
+index 8f8016e..f36f689 100644
+--- a/yolox/core/trainer.py
++++ b/yolox/core/trainer.py
+@@ -404,8 +404,10 @@ class Trainer:
+                 "start_epoch": self.epoch + 1,
+                 "model": save_model.state_dict(),
+                 "optimizer": self.optimizer.state_dict(),
+-                "best_ap": self.best_ap,
+-                "curr_ap": ap,
++                # cuentapepas patch: COCOeval returns numpy.float64; plain floats keep the checkpoint
++                # loadable with torch.load(weights_only=True), the default since torch 2.6 (used by --resume).
++                "best_ap": float(self.best_ap),
++                "curr_ap": None if ap is None else float(ap),
+             }
+             save_checkpoint(
+                 ckpt_state,
