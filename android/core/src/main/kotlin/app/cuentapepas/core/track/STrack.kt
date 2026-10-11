@@ -104,7 +104,7 @@ internal class STrack(det: Detection, kf: KalmanFilterXyah, frameId: Int) {
     private companion object {
         fun measurement(det: Detection): DoubleArray {
             val b = det.box
-            val h = maxOf(b.height.toDouble(), 1e-3)
+            val h = b.height.toDouble() // ByteTracker.update skips detections with h <= 0
             val w = maxOf(b.width.toDouble(), 0.0)
             return doubleArrayOf(b.cx.toDouble(), b.cy.toDouble(), w / h, h)
         }

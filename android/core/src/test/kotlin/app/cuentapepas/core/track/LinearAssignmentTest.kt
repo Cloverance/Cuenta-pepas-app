@@ -82,6 +82,54 @@ class LinearAssignmentTest {
         assertEquals(55, r.matches.size + r.unmatchedCols.size)
     }
 
+    @Test
+    fun sparseMatricesMatchBruteForceObjective() {
+        val thr = 0.5
+        for (seed in longArrayOf(1, 2, 3, 11, 42, 99)) {
+            val rnd = Random(seed)
+            repeat(40) {
+                val rows = 4 + rnd.nextInt(3)
+                val cols = 4 + rnd.nextInt(3)
+                // About 70% of the pairs are forbidden (cost above the threshold).
+                val cost = Array(rows) {
+                    DoubleArray(cols) { if (rnd.nextInt(10) < 7) thr + 1e-3 + rnd.nextDouble() * 0.5 else rnd.nextDouble() * thr }
+                }
+                val r = LinearAssignment.solve(cost, thr)
+                assertTrue(r.matches.all { (i, j) -> cost[i][j] <= thr })
+                assertEquals(r.matches.size, r.matches.map { it.first }.toSet().size)
+                assertEquals(r.matches.size, r.matches.map { it.second }.toSet().size)
+                val got = r.matches.sumOf { (i, j) -> thr + 1e-4 - cost[i][j] }
+                assertEquals("seed $seed", bruteForceGain(cost, thr), got, 1e-9)
+            }
+        }
+    }
+
+    @Test
+    fun denseSquareWithRealThresholdMatchesBruteForceObjective() {
+        val rnd = Random(5)
+        repeat(30) {
+            val cost = Array(6) { DoubleArray(6) { rnd.nextDouble() } }
+            val r = LinearAssignment.solve(cost, 0.5)
+            assertEquals(bruteForceGain(cost, 0.5), r.matches.sumOf { (i, j) -> 0.5 + 1e-4 - cost[i][j] }, 1e-9)
+        }
+    }
+
+    /** Max of sum(threshold + 1e-4 - c) over admissible pairs, with any rows left unmatched. */
+    private fun bruteForceGain(cost: Array<DoubleArray>, thr: Double): Double {
+        val rows = cost.size
+        val cols = cost[0].size
+        var best = 0.0
+        fun rec(row: Int, used: Int, acc: Double) {
+            if (row == rows) { if (acc > best) best = acc; return }
+            rec(row + 1, used, acc)
+            for (c in 0 until cols) if (used and (1 shl c) == 0 && cost[row][c] <= thr) {
+                rec(row + 1, used or (1 shl c), acc + thr + 1e-4 - cost[row][c])
+            }
+        }
+        rec(0, 0, 0.0)
+        return best
+    }
+
     /** Minimum total cost assigning every row of a rows <= cols matrix to a distinct column. */
     private fun bruteForceMin(cost: Array<DoubleArray>): Double {
         val rows = cost.size

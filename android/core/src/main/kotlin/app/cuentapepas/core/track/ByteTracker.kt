@@ -35,6 +35,8 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
      *
      * @param cameraShift global motion since the previous frame in source pixels: content at (x, y)
      *   in the previous frame appears at (x + dx, y + dy) in this one.
+     *   Detections with a non-finite coordinate or a non-positive height are degenerate and are
+     *   skipped up front (they cannot seed a meaningful Kalman state).
      * @return the confirmed tracks that were matched in this frame.
      */
     fun update(detections: List<Detection>, cameraShift: Shift = Shift.ZERO): List<TrackSnapshot> {
@@ -42,6 +44,7 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
         val high = ArrayList<Detection>()
         val low = ArrayList<Detection>()
         for (d in detections) {
+            if (isDegenerate(d)) continue
             if (d.score >= config.highThresh) high.add(d)
             else if (d.score >= config.lowThresh) low.add(d)
         }
@@ -100,7 +103,7 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
                 }
             }
         }
-        removeDuplicateTracks(newTracked, newLost, frameId)
+        removeDuplicateTracks(newTracked, newLost)
         tracked = newTracked
         lost = newLost
 
@@ -124,13 +127,21 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
     }
 
     internal companion object {
+        private fun isDegenerate(d: Detection): Boolean {
+            val b = d.box
+            return !(b.x1.isFinite() && b.y1.isFinite() && b.x2.isFinite() && b.y2.isFinite()) ||
+                b.y2 - b.y1 <= 0f
+        }
+
         /**
          * ByteTrack's `remove_duplicate_stracks`: a tracked and a lost track whose IoU exceeds 0.85
-         * (distance < 0.15) are the same object; the one with the shorter lifetime
-         * (`frameId - startFrame`) is dropped from its list, the tracked one on a tie.
-         * Without this a duplicate would be counted twice downstream. Mutates both lists.
+         * (distance < 0.15) are taken to be the same object; the one with the shorter lifetime
+         * (`endFrame - startFrame`, last-seen minus first-seen) is dropped from its list, the tracked
+         * one on a tie. This mainly stops a newborn duplicate of a lost track from being activated
+         * later (the common case); it cannot un-count ids that were already emitted.
+         * Mutates both lists.
          */
-        internal fun removeDuplicateTracks(tracked: MutableList<STrack>, lost: MutableList<STrack>, frameId: Int) {
+        internal fun removeDuplicateTracks(tracked: MutableList<STrack>, lost: MutableList<STrack>) {
             if (tracked.isEmpty() || lost.isEmpty()) return
             val dropTracked = HashSet<STrack>()
             val dropLost = HashSet<STrack>()
@@ -141,7 +152,7 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
                     val qb = lostBoxes[j]
                     val iou = Box.iou(pb.x1, pb.y1, pb.x2, pb.y2, qb.x1, qb.y1, qb.x2, qb.y2).toDouble()
                     if (1.0 - iou < DUPLICATE_DIST) {
-                        if (frameId - p.startFrame > frameId - q.startFrame) dropLost.add(q) else dropTracked.add(p)
+                        if (p.endFrame - p.startFrame > q.endFrame - q.startFrame) dropLost.add(q) else dropTracked.add(p)
                     }
                 }
             }

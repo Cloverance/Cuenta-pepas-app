@@ -177,18 +177,47 @@ class ByteTrackerTest {
     @Test
     fun duplicateOfLostTrackIsRemovedKeepingTheOlder() {
         val kf = KalmanFilterXyah()
-        val old = STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.state = TrackState.Lost }
-        val young = STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2) }
+        val old = STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.state = TrackState.Lost; it.endFrame = 4 }
+        val young = STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2); it.endFrame = 6 }
         val tracked = arrayListOf(young)
         val lost = arrayListOf(old)
-        ByteTracker.removeDuplicateTracks(tracked, lost, 6)
+        ByteTracker.removeDuplicateTracks(tracked, lost)
         assertEquals(listOf(1), (tracked + lost).map { it.id })
 
         // The same, with the lost track the younger one: the tracked (older) survives.
-        val t2 = arrayListOf(STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1) })
-        val l2 = arrayListOf(STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2); it.state = TrackState.Lost })
-        ByteTracker.removeDuplicateTracks(t2, l2, 6)
+        val t2 = arrayListOf(STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.endFrame = 6 })
+        val l2 = arrayListOf(STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2); it.state = TrackState.Lost; it.endFrame = 5 })
+        ByteTracker.removeDuplicateTracks(t2, l2)
         assertEquals(listOf(1), (t2 + l2).map { it.id })
+    }
+
+    @Test
+    fun dedupUsesLastSeenLifetimeNotAge() {
+        val kf = KalmanFilterXyah()
+        // Lost track: seen frames 1..3 (lifetime 2), lost since (current frame 23).
+        val lostShort = STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.endFrame = 3; it.state = TrackState.Lost }
+        // Tracked track: seen frames 18..23 (lifetime 5), overlapping it.
+        val trackedLonger = STrack(det(101f, 100f, 20f), kf, 18).also { it.activate(2); it.endFrame = 23 }
+        val tracked = arrayListOf(trackedLonger)
+        val lost = arrayListOf(lostShort)
+        ByteTracker.removeDuplicateTracks(tracked, lost)
+        assertEquals(listOf(2), tracked.map { it.id })
+        assertTrue(lost.isEmpty())
+    }
+
+    @Test
+    fun degenerateDetectionsAreSkipped() {
+        val tracker = ByteTracker()
+        val bad = listOf(
+            Detection(Box(10f, 10f, 20f, 10f), 0.9f, 0, probs),          // h == 0
+            Detection(Box(10f, 20f, 20f, 10f), 0.9f, 0, probs),          // h < 0
+            Detection(Box(Float.NaN, 10f, 20f, 30f), 0.9f, 0, probs),
+            Detection(Box(10f, 10f, Float.POSITIVE_INFINITY, 30f), 0.9f, 0, probs),
+        )
+        assertEquals(1, tracker.update(bad + det(50f, 50f, 12f)).single().id)
+        val out = tracker.update(bad + det(50f, 50f, 12f))
+        assertEquals(1, out.size)
+        assertEquals(2, out.single().hits)
     }
 
     @Test
@@ -198,7 +227,7 @@ class ByteTrackerTest {
         val b = STrack(det(130f, 100f, 20f), kf, 5).also { it.activate(2) }
         val tracked = arrayListOf(b)
         val lost = arrayListOf(a)
-        ByteTracker.removeDuplicateTracks(tracked, lost, 6)
+        ByteTracker.removeDuplicateTracks(tracked, lost)
         assertEquals(1, tracked.size)
         assertEquals(1, lost.size)
     }

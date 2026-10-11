@@ -14,10 +14,13 @@ object LinearAssignment {
      * Minimum-cost matching of rows to columns, dropping every pair whose cost is above [threshold].
      *
      * The cost matrix is padded to a square with `threshold + 1e-4`, which is also the cost given to
-     * any forbidden pair (cost > threshold), so the result maximises the number of admissible pairs
-     * before minimising their total cost (same semantics as `lap.lapjv(extend_cost, cost_limit)` in
-     * ByteTrack). The problem is split into connected components of the admissible pairs (exact),
-     * which keeps the typical sparse IoU matrices far below the O(n^3) worst case.
+     * any forbidden pair (cost > threshold). The optimum therefore maximises
+     * `sum(filler - c)` over the admissible matched pairs (the lapjv-like objective of
+     * `lap.lapjv(extend_cost, cost_limit)` in ByteTrack): a pair is taken only when it beats the
+     * filler, so this is not strictly cardinality-first, although the 1e-4 margin makes extra
+     * admissible pairs very attractive. The problem is split into connected components of the
+     * admissible pairs (exact), which keeps the typical sparse IoU matrices far below the O(n^3)
+     * worst case.
      * [nCols] only matters when [cost] has no rows (the column count cannot be read from it).
      */
     fun solve(
