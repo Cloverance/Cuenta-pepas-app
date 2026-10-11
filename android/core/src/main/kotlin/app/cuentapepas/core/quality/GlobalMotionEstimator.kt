@@ -137,13 +137,13 @@ class GlobalMotionEstimator(val searchRadius: Int = 6, val levels: Int = 3) {
         val y0 = if (dy < 0) -dy else 0
         val area = overlapW * overlapH
         val maxSum = bound * area
-        var sum = 0
+        var sum = 0L // Long: 255 * area overflows Int beyond ~8.4 Mpx
         for (y in y0 until y0 + overlapH) {
             var pi = y * w + x0
             var ci = (y + dy) * w + x0 + dx
             for (x in 0 until overlapW) {
                 val diff = (p[pi].toInt() and 0xFF) - (c[ci].toInt() and 0xFF)
-                sum += if (diff < 0) -diff else diff
+                sum += if (diff < 0) -diff else diff // Int widened to Long
                 pi++
                 ci++
             }
