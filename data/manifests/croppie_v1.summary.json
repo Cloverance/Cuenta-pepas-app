@@ -1,0 +1,31 @@
+{
+  "seed": 20261011,
+  "val_fraction": 0.15,
+  "n_images": {
+    "train": 7072,
+    "val": 1261
+  },
+  "n_originals": {
+    "train": 536,
+    "val": 95
+  },
+  "boxes_per_class": {
+    "train": {
+      "green": 42640,
+      "semi_ripe": 15148,
+      "ripe": 62857,
+      "overripe": 5762,
+      "dry": 0
+    },
+    "val": {
+      "green": 7072,
+      "semi_ripe": 1904,
+      "ripe": 12133,
+      "overripe": 1208,
+      "dry": 0
+    }
+  },
+  "dropped_boxes": 740,
+  "excluded_images": 0,
+  "taxonomy_schema_version": 1
+}
