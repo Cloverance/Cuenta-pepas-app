@@ -1,4 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Cuentapepas</string>
+
+    <!-- Modelo -->
+    <string name="model_missing">Falta el modelo: %1$s. Genere los archivos con «cuentapepas export» y cópielos en app/src/main/assets/model/ (vea el README.txt de esa carpeta).</string>
+    <string name="model_invalid">El modelo no es válido: %1$s</string>
+    <string name="model_load_failed">No se pudo cargar el modelo: %1$s</string>
+
+    <!-- Delegado de inferencia -->
+    <string name="delegate_gpu">GPU</string>
+    <string name="delegate_cpu">CPU</string>
+    <string name="delegate_fallback_disabled">GPU desactivada por configuración</string>
+    <string name="delegate_fallback_not_supported">La GPU de este dispositivo no es compatible; se usa la CPU</string>
+    <string name="delegate_fallback_init_failed">Falló la GPU (%1$s); se usa la CPU</string>
+
+    <!-- Estado térmico (PowerManager.THERMAL_STATUS_*) -->
+    <string name="thermal_no_data">Sin dato</string>
+    <string name="thermal_none">Normal</string>
+    <string name="thermal_light">Calor leve</string>
+    <string name="thermal_moderate">Calor moderado</string>
+    <string name="thermal_severe">Calor alto</string>
+    <string name="thermal_critical">Calor crítico</string>
+    <string name="thermal_emergency">Emergencia térmica</string>
+    <string name="thermal_shutdown">Apagado térmico</string>
+    <string name="throttled_notice">Dispositivo caliente: se procesa un cuadro de cada dos</string>
+
+    <!-- Errores del canal de procesamiento -->
+    <string name="frame_errors">Errores de procesamiento: %1$d. Último: %2$s</string>
+    <string name="logging_error">Falla el registro de evaluación: %1$s</string>
 </resources>
