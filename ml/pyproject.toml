@@ -1,0 +1,66 @@
+[project]
+name = "cuentapepas"
+version = "0.1.0"
+description = "Cuentapepas ML pipeline: data catalog, detector training/export, tracking and counting evaluation"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+    "numpy>=1.26,<2.2",
+    "opencv-python-headless>=4.10",
+    "pyyaml>=6.0",
+    "pillow>=10.0",
+    "scipy>=1.13",
+    "tqdm>=4.66",
+    "loguru>=0.7",
+    "tabulate>=0.9",
+    "psutil>=5.9",
+    "pycocotools>=2.0.8",
+    "huggingface-hub>=0.25",
+    "torch>=2.5",
+    "torchvision>=0.20",
+    "thop>=0.1.1.post2209072238",
+    "tensorboard>=2.17",
+]
+
+[project.optional-dependencies]
+export = [
+    "onnx>=1.16,<1.18",
+    "onnxruntime>=1.19",
+    "onnxsim>=0.4.36",
+    "onnx2tf>=1.26",
+    "onnx-graphsurgeon>=0.5",
+    "sng4onnx>=1.0.4",
+    "tensorflow-cpu>=2.17,<2.20",
+    "tf-keras>=2.17,<2.20",
+    "ai-edge-litert>=1.0",
+]
+
+[project.scripts]
+cuentapepas = "cuentapepas.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126" }]
+torchvision = [{ index = "pytorch-cu126" }]
+
+# cu126 wheels still include Pascal (sm_61) kernels needed by the local GTX 1050.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cuentapepas"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

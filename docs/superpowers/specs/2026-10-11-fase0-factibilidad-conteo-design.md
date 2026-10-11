@@ -279,3 +279,86 @@ Se escriben con TDD (pytest). Ninguna prueba necesita GPU ni datos reales:
 | El tracker falla en racimos densos | Compensación del movimiento de la cámara, caminar más lento y criterio "Ajustar" antes de pivotar |
 | El conteo manual tiene errores | Doble conteo manual en un subconjunto de plantas para medir el error humano |
 | Sobreajustar los umbrales al test | Criterios preregistrados y ajuste solo con validación |
+
+---
+
+## 14. Cambio de alcance (2026-10-11): la app v1 se construye ya y mide la Fase 0
+
+El responsable del proyecto pidió **terminar la app** y probarla en campo. La Fase 0 no se descarta: sus mediciones se **incorporan a la app**, de modo que cada recorrido de prueba también sirve de evaluación. Cambios respecto a lo anterior:
+
+- **Datos.** D2 (no se encontró al autor) y D3 (procedencia sin confirmar) quedan como `reference` y **no se usan para entrenar**. El modelo v1 se entrena con **D1 (Croppie UG)** y, si el responsable configura su clave de Roboflow en `.tools/secrets.env`, también con D5 y D7.
+  - Las credenciales nunca las teclea el asistente. Las claves API las pone el responsable en ese archivo, que está excluido de git.
+- **Entorno.** Todo (JDK, SDK de Android, Gradle, Python, cachés y datos) vive en `.tools/`, dentro de la carpeta del proyecto. Antes de cualquier comando se carga `tools/env.sh` o `tools/env.ps1`.
+- **Benchmark.** El benchmark del dispositivo pasa de adb a una **pantalla de benchmark dentro de la app**, para que el responsable lo corra sin cable.
+
+### 14.1 Arquitectura de la app
+
+Kotlin nativo, Jetpack Compose, CameraX y TensorFlow Lite (Apache-2.0) con delegado GPU y CPU como respaldo. minSdk 26 y targetSdk 35. La orientación es **horizontal**: al caminar a lo largo del surco, cada pepa permanece más cuadros en la imagen y el seguimiento es más fácil.
+
+| Módulo Gradle | Contenido | Pruebas |
+|---|---|---|
+| `:core` (Kotlin/JVM puro, sin Android) | `geometry`, `detect` (posprocesado YOLOX: filtro y NMS), `track` (Kalman, ByteTrack, asignación húngara, compensación del movimiento de la cámara), `count` (confirmación de tracks, voto de madurez, conteo por planta y por sesión), `quality` (nitidez, luz, movimiento global y avisos con histéresis), `calibration` (estimador de razón con bootstrap), `estimate` (estimación por lote con IC y cobertura), `session` (claves de planta, reglas para recorridos repetidos, filtro de GPS por precisión, superposición de trazados) | JUnit en el PC, sin teléfono |
+| `:app` (Android) | Cámara (vista previa, análisis por cuadro y grabación de video opcional), intérprete TFLite, GPS (LocationManager, offline), temperatura y batería, almacenamiento en archivos JSON por sesión, exportación (compartir JSON y CSV) y la interfaz | Compilación y análisis estático; la prueba funcional se hace en el S22+ |
+
+**Flujo por cuadro.** La cámara entrega un cuadro YUV de 1280×720. Con él se calculan:
+1. Las métricas de calidad sobre el plano Y reducido a 160×90: nitidez (varianza del laplaciano), brillo (media y % de píxeles saturados y oscuros) y desplazamiento global (dx, dy) por búsqueda piramidal.
+2. La entrada del modelo: el cuadro en RGB, reducido a 640×360 y con relleno hasta 640×384 (BGR, valores 0–255, como espera YOLOX).
+3. La salida del modelo, `[1, 5040, 10]`, ya decodificada: se filtra con un umbral de obj×cls y se aplica NMS sin distinguir clase.
+4. El tracker: predice con Kalman, desplaza las predicciones según el movimiento de la cámara y asocia en dos etapas (alta y baja confianza).
+5. El contador: confirma tracks, vota la madurez y acumula el conteo de la planta y de la sesión.
+6. La interfaz y, si el modo evaluación está activo, el registro JSONL por cuadro.
+
+### 14.2 Pantallas
+
+1. **Inicio.** Lotes (nombre, número total de plantas, opcionalmente pepas por kg), sesiones y estado de la calibración.
+2. **Nuevo recorrido.** Lote, surco, lado (A/B), número de la primera planta y dirección de numeración (+1/−1), marca de "planta de muestra para calibración" y casilla "Modo evaluación (grabar video y registro)".
+3. **Cámara en vivo.**
+   - Cajas de color por madurez.
+   - Conteo de la planta actual por clase y total del recorrido.
+   - Avisos de calidad (muy rápido, borroso, poca luz, contraluz).
+   - FPS, estado térmico y batería.
+   - Botones grandes: **Siguiente planta** (también con la tecla de volumen), **Pausa** y **Terminar**.
+4. **Resumen del recorrido.** Conteo por planta y por clase; % de cuadros con aviso; rendimiento (FPS mediano y p10, estado térmico máximo, % de batería por hora); precisión del GPS (mediana y p90).
+5. **Calibración.** Plantas de muestra con su conteo de la app y su conteo manual, que se ingresa a mano. Muestra k con su IC al 90 %, n y el error por planta dejando una fuera. Está **activa solo con n ≥ 10**.
+6. **Estimación del lote.**
+   - Si no hay calibración: **"pepas visibles"** promedio por planta, con su IC.
+   - Si hay calibración: total estimado del lote con IC al 90 %, proporción de madurez con IC, y kg si se ingresaron pepas por kg.
+   - Siempre muestra la **cobertura**: plantas recorridas de N, surcos y lados recorridos, y "no recorrido = sin dato".
+   - Si hay menos de 10 plantas recorridas, muestra "evidencia insuficiente".
+7. **Benchmark.** Corre el detector durante X minutos sobre imágenes de prueba incluidas en la app y registra latencia, estado térmico y batería. Exporta los resultados.
+8. **Ajustes.** Umbrales de los avisos y de confirmación de tracks, con valores por defecto **provisionales**: se recalibran con los datos de campo (§7.2).
+
+### 14.3 Reglas de conteo único y de recorridos repetidos
+
+- **Una pepa, un ID.** Solo se cuentan los tracks confirmados: al menos `minHits` impactos y una confianza media de al menos `minScore`. Un track pertenece a la planta que está activa cuando se confirma.
+- **Clave de planta:** (lote, surco, lado, número de planta).
+  - Si se recorre de nuevo el mismo lote, surco y lado, la app pregunta si **reemplazar** el recorrido anterior o cancelar. Los conteos **nunca se suman**: para cada clave cuenta el recorrido más reciente.
+  - Si una misma planta tiene los dos lados recorridos, cada lado da una estimación calibrada independiente de la planta y se **promedian**. El factor de calibración del protocolo v1 es **"un lado → planta completa"**.
+- **Uso del GPS.** Se descartan los puntos con precisión peor que 10 m (ajustable). El GPS sirve para el trazado y la cobertura, y para un **aviso** de posible recorrido repetido: se dispara si al menos el 70 % de los puntos buenos del recorrido nuevo quedan a 3 m o menos del trazado de otro recorrido del mismo lote.
+  - **El GPS no identifica plantas ni surcos vecinos**: su error es mayor que la distancia entre ellos. Por eso la clave explícita es la que manda, y el aviso solo pide confirmación.
+
+### 14.4 Estadística (módulos `calibration` y `estimate`)
+
+- **Calibración.** Se calcula la razón k = Σ manual / Σ app. Su IC se obtiene por bootstrap sobre plantas (2.000 réplicas con semilla fija). El intervalo de predicción para una planta se obtiene combinando k* de cada réplica con el residuo de una planta tomada al azar.
+- **Estimación del lote.** Total = N × la media de las plantas recorridas ya calibradas. El IC sale de un bootstrap conjunto que remuestrea tanto las plantas recorridas como las plantas de calibración. La proporción de madurez lleva su IC por bootstrap.
+- **No se interpola.** No se reportan surcos sin recorrer. El total supone que las plantas recorridas representan al lote, y la pantalla lo dice textualmente junto a la cobertura.
+
+### 14.5 Modelo v1
+
+- **Arquitectura:** YOLOX-Nano entrenado en la GTX 1050 local, con entrada de 384×640 (alto×ancho), sobre D1 mapeado a la taxonomía v1 (más D5 y D7 si hay clave de Roboflow).
+- **Exportación:** PyTorch → ONNX con la decodificación incluida → onnx2tf → TFLite en float16 y float32.
+- **Validación de la exportación:** el ONNX y el TFLite deben dar las mismas salidas que PyTorch, dentro de una tolerancia.
+- **Las limitaciones van escritas en la app ("Acerca del modelo"):**
+  - Entrenado con datos de Uganda.
+  - Sin datos colombianos todavía.
+  - Las clases `overripe` y `dry` vienen fusionadas en D1, así que su separación es débil.
+- Los pesos llevan la atribución CC BY-SA de D1 en `NOTICE` y en la pantalla "Acerca de".
+
+### 14.6 Verificación posible desde este PC
+
+- Pruebas JUnit de `:core` y pytest del pipeline de ML.
+- Que el APK compile.
+- Que el TFLite coincida con PyTorch.
+- La inferencia del TFLite sobre imágenes de validación, con la métrica de detección reportada.
+
+**No es posible desde aquí:** la cámara real, el rendimiento en el S22+ y el GPS. Eso lo hace el responsable en campo, con el modo evaluación y la pantalla de benchmark.

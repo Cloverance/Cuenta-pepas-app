@@ -1,0 +1,28 @@
+# Local toolchains, caches, secrets (see tools/env.sh)
+.tools/
+
+# Local data: videos, images, third-party datasets, weights
+data/local/
+runs/
+*.pth
+*.onnx
+*.tflite
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+.DS_Store
+
+# Setup logs
+.tools-setup.log
+*.log
