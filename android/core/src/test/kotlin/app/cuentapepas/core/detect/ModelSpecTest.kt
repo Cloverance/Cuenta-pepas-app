@@ -2,6 +2,7 @@ package app.cuentapepas.core.detect
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,4 +57,24 @@ class ModelSpecTest {
         val json = exampleJson().replaceFirst("{", "{\"future_field\": {\"a\": 1},")
         assertEquals(5040, ModelSpec.parse(json).numAnchors)
     }
+
+    private fun assertRejected(from: String, to: String, messagePart: String) {
+        val json = exampleJson().replace(from, to)
+        assertTrue("test setup: replacement must apply", json != exampleJson())
+        val e = assertThrows(IllegalArgumentException::class.java) { ModelSpec.parse(json) }
+        assertTrue("message was: ${e.message}", e.message!!.contains(messagePart))
+    }
+
+    @Test fun rejectsWrongInputLayout() = assertRejected("\"layout\": \"NHWC\"", "\"layout\": \"NCHW\"", "input.layout")
+
+    @Test fun rejectsWrongChannelOrder() = assertRejected("\"channel_order\": \"BGR\"", "\"channel_order\": \"RGB\"", "input.channel_order")
+
+    @Test fun rejectsWrongLetterbox() = assertRejected("\"letterbox\": \"top_left\"", "\"letterbox\": \"center\"", "input.letterbox")
+
+    @Test fun rejectsWrongCoords() = assertRejected("\"coords\": \"input_pixels\"", "\"coords\": \"normalized\"", "output.coords")
+
+    @Test fun rejectsWrongActivations() =
+        assertRejected("\"activations\": \"sigmoid_applied\"", "\"activations\": \"logits\"", "output.activations")
+
+    @Test fun rejectsBatchOtherThanOne() = assertRejected("\"shape\": [1, 5040, 10]", "\"shape\": [2, 5040, 10]", "output.shape[0]")
 }

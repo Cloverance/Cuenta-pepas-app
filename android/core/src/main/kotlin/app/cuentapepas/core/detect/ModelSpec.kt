@@ -57,9 +57,17 @@ data class ModelSpec(
     data class ModelFile(val name: String, val sha256: String)
 
     init {
+        require(input.layout == "NHWC") { "model.json: input.layout must be \"NHWC\", got \"${input.layout}\"" }
+        require(input.channelOrder == "BGR") { "model.json: input.channel_order must be \"BGR\", got \"${input.channelOrder}\"" }
+        require(input.letterbox == "top_left") { "model.json: input.letterbox must be \"top_left\", got \"${input.letterbox}\"" }
+        require(output.coords == "input_pixels") { "model.json: output.coords must be \"input_pixels\", got \"${output.coords}\"" }
+        require(output.activations == "sigmoid_applied") {
+            "model.json: output.activations must be \"sigmoid_applied\", got \"${output.activations}\""
+        }
         require(classes.isNotEmpty()) { "model.json: classes is empty" }
         require(input.width > 0 && input.height > 0) { "model.json: input size must be positive: ${input.width}x${input.height}" }
         require(output.shape.size == 3) { "model.json: output.shape must have 3 dims, got ${output.shape}" }
+        require(output.shape[0] == 1) { "model.json: output.shape[0] (batch) must be 1, got ${output.shape[0]}" }
         val channels = if (output.transposed) output.shape[1] else output.shape[2]
         require(channels == 5 + classes.size) {
             "model.json: output has $channels channels but 5 + ${classes.size} classes were declared (shape=${output.shape}, transposed=${output.transposed})"
