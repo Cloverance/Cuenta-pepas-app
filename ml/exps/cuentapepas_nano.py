@@ -29,7 +29,9 @@ class Exp(MyExp):
         # padding); 384x640 keeps strides 8/16/32 exact.
         self.input_size = (384, 640)
         self.test_size = (384, 640)
-        self.random_size = None if os.environ.get("CP_MULTISCALE", "1") == "0" else (10, 20)
+        # YOLOX always calls random_resize (randint(*random_size)), so "fixed size" is the degenerate range
+        # (12, 12): 12*32 = 384 rows and 32*int(12*640/384) = 640 columns.
+        self.random_size = (12, 12) if os.environ.get("CP_MULTISCALE", "1") == "0" else (10, 20)
         self.mosaic_scale = (0.5, 1.5)
         self.mosaic_prob = 1.0
         self.enable_mixup = False
