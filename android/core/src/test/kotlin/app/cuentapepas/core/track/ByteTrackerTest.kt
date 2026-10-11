@@ -173,4 +173,33 @@ class ByteTrackerTest {
         assertEquals(56f, b.x2, 1e-3f)
         assertEquals(66f, b.y2, 1e-3f)
     }
+
+    @Test
+    fun duplicateOfLostTrackIsRemovedKeepingTheOlder() {
+        val kf = KalmanFilterXyah()
+        val old = STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.state = TrackState.Lost }
+        val young = STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2) }
+        val tracked = arrayListOf(young)
+        val lost = arrayListOf(old)
+        ByteTracker.removeDuplicateTracks(tracked, lost, 6)
+        assertEquals(listOf(1), (tracked + lost).map { it.id })
+
+        // The same, with the lost track the younger one: the tracked (older) survives.
+        val t2 = arrayListOf(STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1) })
+        val l2 = arrayListOf(STrack(det(101f, 100f, 20f), kf, 5).also { it.activate(2); it.state = TrackState.Lost })
+        ByteTracker.removeDuplicateTracks(t2, l2, 6)
+        assertEquals(listOf(1), (t2 + l2).map { it.id })
+    }
+
+    @Test
+    fun nonOverlappingLostAndTrackedBothSurvive() {
+        val kf = KalmanFilterXyah()
+        val a = STrack(det(100f, 100f, 20f), kf, 1).also { it.activate(1); it.state = TrackState.Lost }
+        val b = STrack(det(130f, 100f, 20f), kf, 5).also { it.activate(2) }
+        val tracked = arrayListOf(b)
+        val lost = arrayListOf(a)
+        ByteTracker.removeDuplicateTracks(tracked, lost, 6)
+        assertEquals(1, tracked.size)
+        assertEquals(1, lost.size)
+    }
 }

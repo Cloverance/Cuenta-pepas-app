@@ -100,6 +100,7 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
                 }
             }
         }
+        removeDuplicateTracks(newTracked, newLost, frameId)
         tracked = newTracked
         lost = newLost
 
@@ -120,5 +121,34 @@ class ByteTracker(private val config: TrackerConfig = TrackerConfig()) {
                 if (fuse) 1.0 - iou * d.score else 1.0 - iou
             }
         }
+    }
+
+    internal companion object {
+        /**
+         * ByteTrack's `remove_duplicate_stracks`: a tracked and a lost track whose IoU exceeds 0.85
+         * (distance < 0.15) are the same object; the one with the shorter lifetime
+         * (`frameId - startFrame`) is dropped from its list, the tracked one on a tie.
+         * Without this a duplicate would be counted twice downstream. Mutates both lists.
+         */
+        internal fun removeDuplicateTracks(tracked: MutableList<STrack>, lost: MutableList<STrack>, frameId: Int) {
+            if (tracked.isEmpty() || lost.isEmpty()) return
+            val dropTracked = HashSet<STrack>()
+            val dropLost = HashSet<STrack>()
+            val lostBoxes = lost.map { it.box() }
+            for (p in tracked) {
+                val pb = p.box()
+                for ((j, q) in lost.withIndex()) {
+                    val qb = lostBoxes[j]
+                    val iou = Box.iou(pb.x1, pb.y1, pb.x2, pb.y2, qb.x1, qb.y1, qb.x2, qb.y2).toDouble()
+                    if (1.0 - iou < DUPLICATE_DIST) {
+                        if (frameId - p.startFrame > frameId - q.startFrame) dropLost.add(q) else dropTracked.add(p)
+                    }
+                }
+            }
+            tracked.removeAll(dropTracked)
+            lost.removeAll(dropLost)
+        }
+
+        private const val DUPLICATE_DIST = 0.15
     }
 }
