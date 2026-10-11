@@ -43,7 +43,8 @@ def _export(args: argparse.Namespace) -> int:
     from cuentapepas.export import ExportConfig, ExportError, export
 
     cfg = ExportConfig(out=_repo_path(args.out), run=_repo_path(args.run) if args.run else None,
-                       ckpt=_repo_path(args.ckpt) if args.ckpt else None, val_dir=_repo_path(args.val_dir))
+                       ckpt=_repo_path(args.ckpt) if args.ckpt else None, val_dir=_repo_path(args.val_dir),
+                       report_dir=_repo_path(args.report_dir) if args.report_dir else None)
     try:
         report = export(cfg)
     except ExportError as exc:
@@ -51,7 +52,7 @@ def _export(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps({k: report[k] for k in ("onnx_max_abs_diff", "tflite_fp32_max_abs_diff", "tflite_fp16_detections")},
                      indent=2))
-    print(f"exported to {cfg.out}")
+    print(f"exported to {cfg.out}\nparity report: {report['parity_report_path']}")
     return 0
 
 
@@ -113,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
                             help="output directory (default: the Android assets model dir)")
     export_cmd.add_argument("--val-dir", default="data/local/processed/croppie_v1/val",
                             help="val images used for the parity check")
+    export_cmd.add_argument("--report-dir", help="where parity.json goes (default: <run>/export with --run, else next to "
+                                                 "the checkpoint; never --out, which ships in the APK)")
     export_cmd.set_defaults(handler=_export)
 
     eval_cmd = commands.add_parser("eval", help="COCO mAP, recall and confusion matrix on a split -> runs/<id>/metrics.json")

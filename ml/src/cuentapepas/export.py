@@ -2,7 +2,9 @@
 
 Pipeline (CPU only; never touches CUDA): checkpoint -> ONNX (opset 13, static [1,3,384,640]) -> onnxsim ->
 onnx2tf -> TFLite NHWC. Every artifact is built in a scratch directory; only after all parity checks pass are the
-.tflite files, model.json and parity.json copied to the output directory, so a failed export leaves nothing behind.
+.tflite files and model.json installed into the output directory (atomically, model.json last), so a failed export
+leaves nothing behind. The parity report is NOT installed there (the output directory ships in the APK); it goes to
+the run directory or next to the checkpoint, or to --report-dir.
 """
 from __future__ import annotations
 
@@ -62,14 +64,18 @@ def find_checkpoint(run_dir: Path) -> Path:
     found = sorted(run_dir.rglob("best_ckpt.pth"))
     if not found:
         raise ExportError(f"no best_ckpt.pth under {run_dir}")
-    return found[-1]
+    if len(found) > 1:
+        raise ExportError(f"several best_ckpt.pth under {run_dir}, pass one with --ckpt:\n  "
+                          + "\n  ".join(str(f) for f in found))
+    return found[0]
 
 
 def letterbox(image_bgr: np.ndarray) -> np.ndarray:
     """Preprocessing exactly as the app does it: top-left letterbox into 384x640, pad 114, BGR float32 0..255, HWC."""
     h, w = image_bgr.shape[:2]
-    r = min(INPUT_H / h, INPUT_W / w)
-    nh, nw = int(round(h * r)), int(round(w * r))
+    # Same arithmetic as Kotlin: float32 scale, roundToInt = half-up (floor(x + 0.5)), not Python's banker's round().
+    r = np.float32(min(INPUT_H / h, INPUT_W / w))
+    nh, nw = int(np.floor(np.float32(h) * r + np.float32(0.5))), int(np.floor(np.float32(w) * r + np.float32(0.5)))
     canvas = np.full((INPUT_H, INPUT_W, 3), PAD_VALUE, dtype=np.uint8)
     canvas[:nh, :nw] = cv2.resize(image_bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
     return canvas.astype(np.float32)
@@ -252,8 +258,10 @@ def _max_diffs(ref: np.ndarray, other: np.ndarray, tol: dict[str, float]) -> dic
     exp() of a raw logit; fp32 rounding differences between runtimes are amplified there (up to ~0.05 px on a
     ~450 px box) without any effect on a detection, so they are reported (`*_all_rows`) but not gated.
 
-    `box_ok` / `score_ok` apply the tolerance on the rows that matter: boxes allow `tol + BOX_RTOL * |ref|` because
-    fp32 resolution alone is ~3e-5 px at 450 px and conv rounding accumulates over ~100 layers; scores are absolute.
+    `box_ok` / `score_ok` are evaluated only on those gated rows (reference score >= INFO_THRESHOLD). Per coordinate
+    a box may differ by up to `tol["boxes"] + BOX_RTOL * |ref|` (strictly less than): the relative term exists
+    because fp32 runtimes differ on large boxes (fp32 resolution alone is ~3e-5 px at 450 px and conv rounding
+    accumulates over ~100 layers; large background-like boxes are where it shows). Scores use the absolute `tol`.
     """
     d = np.abs(ref - other)
     rows = ref[:, 4] * ref[:, 5:].max(axis=1) >= INFO_THRESHOLD
@@ -290,13 +298,14 @@ def run_parity(torch_run, onnx_run, fp32_run, fp16_run, images) -> dict:
     thresholds = (GATE_THRESHOLD, INFO_THRESHOLD)
     ref_dets: dict[float, list] = {t: [] for t in thresholds}
     fp16_dets: dict[float, list] = {t: [] for t in thresholds}
-    finite = True
+    finite = {"pytorch": True, "onnx": True, "tflite_fp32": True, "tflite_fp16": True}
     for _, hwc in images:
         ref = torch_run(hwc)
-        finite = finite and bool(np.isfinite(ref).all())
-        diffs["onnx"].append(_max_diffs(ref, onnx_run(hwc), TOL_ONNX))
-        diffs["tflite_fp32"].append(_max_diffs(ref, fp32_run(hwc), TOL_TFLITE_FP32))
-        out16 = fp16_run(hwc)
+        out_onnx, out32, out16 = onnx_run(hwc), fp32_run(hwc), fp16_run(hwc)
+        for key, arr in (("pytorch", ref), ("onnx", out_onnx), ("tflite_fp32", out32), ("tflite_fp16", out16)):
+            finite[key] = finite[key] and bool(np.isfinite(arr).all())
+        diffs["onnx"].append(_max_diffs(ref, out_onnx, TOL_ONNX))
+        diffs["tflite_fp32"].append(_max_diffs(ref, out32, TOL_TFLITE_FP32))
         for t in thresholds:
             ref_dets[t].append(postprocess(ref, score_threshold=t, nms_iou=DEFAULT_NMS_IOU))
             fp16_dets[t].append(postprocess(out16, score_threshold=t, nms_iou=DEFAULT_NMS_IOU))
@@ -305,7 +314,8 @@ def run_parity(torch_run, onnx_run, fp32_run, fp16_run, images) -> dict:
         "onnx_max_abs_diff": _merge(diffs["onnx"]),
         "tflite_fp32_max_abs_diff": _merge(diffs["tflite_fp32"]),
         "tflite_fp16_detections": {f"{t:.2f}": detection_agreement(ref_dets[t], fp16_dets[t]) for t in thresholds},
-        "pytorch_output_finite": finite,
+        "pytorch_output_finite": finite["pytorch"], "onnx_output_finite": finite["onnx"],
+        "tflite_fp32_output_finite": finite["tflite_fp32"], "tflite_fp16_output_finite": finite["tflite_fp16"],
     }
 
 
@@ -324,8 +334,10 @@ def check_parity(report: dict) -> list[str]:
                         f"(max {FP16_MAX_COUNT_DIFF})")
     if gate["mean_best_iou"] is not None and gate["mean_best_iou"] <= FP16_MIN_MEAN_IOU:
         problems.append(f"TFLite fp16 mean best IoU {gate['mean_best_iou']:.3f} <= {FP16_MIN_MEAN_IOU}")
-    if not report["pytorch_output_finite"]:
-        problems.append("PyTorch output contains NaN/Inf")
+    for key, label in (("pytorch_output_finite", "PyTorch"), ("onnx_output_finite", "ONNX"),
+                       ("tflite_fp32_output_finite", "TFLite fp32"), ("tflite_fp16_output_finite", "TFLite fp16")):
+        if not report.get(key, True):
+            problems.append(f"{label} output contains NaN/Inf")
     return problems
 
 
@@ -338,24 +350,25 @@ def _rel(path: Path) -> str | None:
         return None
 
 
-def read_metrics(run_dir: Path | None, ckpt: dict) -> tuple[dict, str]:
-    """Real validation metrics only: <run>/metrics.json, else the AP the trainer stored in the checkpoint, else null.
+def read_metrics(run_dir: Path | None, ckpt: dict) -> tuple[dict[str, float], str]:
+    """Real validation metrics only, missing keys omitted (never null: the app parses Map<String, Double>).
 
+    Source: <run>/metrics.json, else the AP the trainer stored in the checkpoint, else nothing (empty dict).
     YOLOX records `best_ap` (COCO AP@[.5:.95] on val, a fraction) in best_ckpt.pth but not AP50, so `val_map50`
-    stays null unless metrics.json provides it.
+    is only present when metrics.json provides it.
     """
-    metrics = {"val_map50": None, "val_map50_95": None}
+    keys = ("val_map50", "val_map50_95")
     if run_dir is not None and (run_dir / "metrics.json").exists():
         raw = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
-        return {k: raw.get(k) for k in metrics}, "metrics.json"
+        return {k: float(raw[k]) for k in keys if raw.get(k) is not None}, "metrics.json"
     best_ap = ckpt.get("best_ap") if isinstance(ckpt, dict) else None
     if best_ap is not None:
-        metrics["val_map50_95"] = float(best_ap)
-        return metrics, "checkpoint best_ap"
-    return metrics, "unavailable"
+        return {"val_map50_95": float(best_ap)}, "checkpoint.best_ap"
+    return {}, "unavailable"
 
 
-def build_model_json(*, training_run: str | None, metrics: dict, fp16: Path, fp32: Path, output_shape: list[int],
+def build_model_json(*, training_run: str | None, metrics: dict, metrics_source: str, parity_report_sha256: str,
+                     fp16: Path, fp32: Path, output_shape: list[int],
                      transposed: bool) -> dict:
     taxonomy = load_taxonomy()
     output = {"shape": output_shape,
@@ -377,6 +390,8 @@ def build_model_json(*, training_run: str | None, metrics: dict, fp16: Path, fp3
                   "fp32": {"name": FP32_NAME, "sha256": _sha256(fp32)}},
         "training_run": training_run,
         "metrics": metrics,
+        "metrics_source": metrics_source,
+        "parity_report_sha256": parity_report_sha256,
         "license_attribution": LICENSE_ATTRIBUTION,
     }
 
@@ -389,6 +404,7 @@ class ExportConfig:
     run: Path | None = None
     ckpt: Path | None = None
     val_dir: Path = DEFAULT_VAL_DIR
+    report_dir: Path | None = None
 
 
 def _scratch_dir() -> Path:
@@ -401,6 +417,24 @@ def _run_of(ckpt_path: Path) -> Path | None:
     """`runs/<id>` when the checkpoint sits at runs/<id>/<exp>/best_ckpt.pth."""
     run = ckpt_path.resolve().parent.parent
     return run if run.parent.name == "runs" else None
+
+
+def install_atomic(files: list[tuple[Path, str]], out: Path) -> None:
+    """Copy each (source, name) to `<out>/<name>.part`, then os.replace them in the given order (put model.json last).
+
+    On any error every `.part` file is removed and the error re-raised.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    parts = [out / f"{name}.part" for _, name in files]
+    try:
+        for (src, _), part in zip(files, parts):
+            shutil.copyfile(src, part)
+        for (_, name), part in zip(files, parts):
+            os.replace(part, out / name)
+    except BaseException:
+        for part in parts:
+            part.unlink(missing_ok=True)
+        raise
 
 
 def export(cfg: ExportConfig) -> dict:
@@ -437,8 +471,6 @@ def export(cfg: ExportConfig) -> dict:
         metrics, metrics_source = read_metrics(run_dir, ckpt)
         training_run = _rel(run_dir) if run_dir is not None else None
         out_shape = fp32_run.output_shape
-        model_json = build_model_json(training_run=training_run, metrics=metrics, fp16=fp16, fp32=fp32,
-                                      output_shape=out_shape, transposed=fp32_run.transposed)
         report.update({
             "checkpoint": _rel(ckpt_path) or str(ckpt_path), "checkpoint_sha256": _sha256(ckpt_path),
             "metrics_source": metrics_source, "onnx2tf_flags": flags,
@@ -450,11 +482,17 @@ def export(cfg: ExportConfig) -> dict:
             "parity_images": [name for name, _ in images],
         })
 
-        cfg.out.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(fp32, cfg.out / FP32_NAME)
-        shutil.copyfile(fp16, cfg.out / FP16_NAME)
-        (cfg.out / "parity.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
-        (cfg.out / "model.json").write_text(json.dumps(model_json, indent=2) + "\n", encoding="utf-8", newline="\n")
+        report_dir = cfg.report_dir or (cfg.run / "export" if cfg.run is not None else ckpt_path.resolve().parent)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        parity_path = report_dir / "parity.json"
+        parity_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
+        model_json = build_model_json(training_run=training_run, metrics=metrics, metrics_source=metrics_source,
+                                      parity_report_sha256=_sha256(parity_path), fp16=fp16, fp32=fp32,
+                                      output_shape=out_shape, transposed=fp32_run.transposed)
+        model_json_path = work / "model.json"
+        model_json_path.write_text(json.dumps(model_json, indent=2) + "\n", encoding="utf-8", newline="\n")
+        report["parity_report_path"] = str(parity_path)
+        install_atomic([(fp32, FP32_NAME), (fp16, FP16_NAME), (model_json_path, "model.json")], cfg.out)
         return report
     finally:
         gc.collect()

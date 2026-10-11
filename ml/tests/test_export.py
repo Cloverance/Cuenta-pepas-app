@@ -46,21 +46,25 @@ def test_check_parity_tolerates_no_detections():
 def test_model_json_records_transposed_output_only_when_true(tmp_path):
     for name in (export.FP16_NAME, export.FP32_NAME):
         (tmp_path / name).write_bytes(b"x")
-    common = dict(training_run="runs/x", metrics={"val_map50": None, "val_map50_95": None},
-                  fp16=tmp_path / export.FP16_NAME, fp32=tmp_path / export.FP32_NAME)
+    common = dict(training_run="runs/x", metrics={"val_map50_95": 0.2}, metrics_source="checkpoint.best_ap",
+                  parity_report_sha256="ab" * 32, fp16=tmp_path / export.FP16_NAME, fp32=tmp_path / export.FP32_NAME)
     plain = export.build_model_json(output_shape=[1, 5040, 10], transposed=False, **common)
     assert "transposed" not in plain["output"] and plain["output"]["shape"] == [1, 5040, 10]
     assert plain["classes"] == ["green", "semi_ripe", "ripe", "overripe", "dry"]
     assert plain["input"]["layout"] == "NHWC" and plain["postprocess"]["max_detections"] == 300
     flipped = export.build_model_json(output_shape=[1, 10, 5040], transposed=True, **common)
     assert flipped["output"]["transposed"] is True
+    assert plain["metrics_source"] == "checkpoint.best_ap" and plain["parity_report_sha256"] == "ab" * 32
+    assert None not in plain["metrics"].values()
 
 
 def test_metrics_are_never_fabricated(tmp_path):
-    assert export.read_metrics(None, {}) == ({"val_map50": None, "val_map50_95": None}, "unavailable")
-    assert export.read_metrics(tmp_path, {"best_ap": 0.25})[0] == {"val_map50": None, "val_map50_95": 0.25}
+    assert export.read_metrics(None, {}) == ({}, "unavailable")
+    assert export.read_metrics(tmp_path, {"best_ap": 0.25}) == ({"val_map50_95": 0.25}, "checkpoint.best_ap")
     (tmp_path / "metrics.json").write_text(json.dumps({"val_map50": 0.7, "val_map50_95": 0.4}), encoding="utf-8")
-    assert export.read_metrics(tmp_path, {"best_ap": 0.25})[0] == {"val_map50": 0.7, "val_map50_95": 0.4}
+    assert export.read_metrics(tmp_path, {"best_ap": 0.25}) == ({"val_map50": 0.7, "val_map50_95": 0.4}, "metrics.json")
+    (tmp_path / "metrics.json").write_text(json.dumps({"val_map50": 0.7, "val_map50_95": None}), encoding="utf-8")
+    assert export.read_metrics(tmp_path, {}) == ({"val_map50": 0.7}, "metrics.json")
 
 
 def test_find_checkpoint_and_missing(tmp_path):
@@ -69,6 +73,10 @@ def test_find_checkpoint_and_missing(tmp_path):
     (tmp_path / "exp").mkdir()
     (tmp_path / "exp" / "best_ckpt.pth").write_bytes(b"x")
     assert export.find_checkpoint(tmp_path) == tmp_path / "exp" / "best_ckpt.pth"
+    (tmp_path / "exp2").mkdir()
+    (tmp_path / "exp2" / "best_ckpt.pth").write_bytes(b"x")
+    with pytest.raises(export.ExportError, match="exp2"):
+        export.find_checkpoint(tmp_path)
 
 
 def test_cli_export_requires_run_or_ckpt():
@@ -98,3 +106,68 @@ def test_max_diffs_gates_only_rows_with_a_meaningful_score_and_allows_relative_b
     assert abs(d["boxes_all_rows"] - 0.5) < 1e-6
     other[2, 2] += 0.05                         # now 0.07 > 0.041
     assert not export._max_diffs(ref, other, export.TOL_ONNX)["box_ok"]
+
+
+def test_letterbox_rounds_half_up_like_kotlin_round_to_int():
+    # h=768, w=1 -> scale = 0.5 (exact), width = 0.5: half-up gives 1 (Python's banker's round gives 0).
+    out = export.letterbox(np.full((768, 1, 3), 50, dtype=np.uint8))
+    assert np.all(out[:384, :1] == 50) and np.all(out[:, 1:] == 114)
+    # h=1, w=3 -> scale 640/3 = 213.33 (width-bound); height floor(213.33 + .5) = 213
+    out = export.letterbox(np.full((1, 3, 3), 50, dtype=np.uint8))
+    assert np.all(out[:213] == 50) and np.all(out[213:] == 114)
+
+
+def _install_files(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    files = []
+    for name in ("a.tflite", "b.tflite", "model.json"):
+        (src / name).write_text(name, encoding="utf-8")
+        files.append((src / name, name))
+    return files
+
+
+def test_install_atomic_installs_all_files_and_leaves_no_part_files(tmp_path):
+    out = tmp_path / "out"
+    export.install_atomic(_install_files(tmp_path), out)
+    assert sorted(p.name for p in out.iterdir()) == ["a.tflite", "b.tflite", "model.json"]
+
+
+def test_install_atomic_failure_in_the_middle_cleans_up(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    real_copy = export.shutil.copyfile
+    calls = []
+
+    def flaky(src, dst):
+        calls.append(dst)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real_copy(src, dst)
+
+    monkeypatch.setattr(export.shutil, "copyfile", flaky)
+    with pytest.raises(OSError, match="disk full"):
+        export.install_atomic(_install_files(tmp_path), out)
+    assert list(out.iterdir()) == []
+
+
+def test_install_atomic_failure_during_replace_removes_parts_and_never_installs_model_json(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    real_replace = export.os.replace
+    done = []
+
+    def flaky(src, dst):
+        if len(done) == 1:
+            raise OSError("replace failed")
+        done.append(dst)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(export.os, "replace", flaky)
+    with pytest.raises(OSError, match="replace failed"):
+        export.install_atomic(_install_files(tmp_path), out)
+    assert not list(out.glob("*.part")) and not (out / "model.json").exists()
+
+
+def test_check_parity_flags_nan_in_onnx_and_tflite_outputs():
+    problems = export.check_parity(_report(onnx_output_finite=False, tflite_fp32_output_finite=False,
+                                           tflite_fp16_output_finite=False))
+    assert len(problems) == 3 and all("NaN/Inf" in p for p in problems)
