@@ -1,17 +1,24 @@
 package app.cuentapepas.core.session
 
-private const val CSV_CLASSES = 5
-
-/** CSV of per-plant counts. `manual` is empty when there is no manual count (never 0). Lines end with LF. */
-fun plantsCsv(plants: List<PlantRecord>): String {
-    val sb = StringBuilder("plant,green,semi_ripe,ripe,overripe,dry,total,manual\n")
+/**
+ * CSV of per-plant counts for one session. Columns: plant, one per entry of [classNames] (model order), total,
+ * manual. [manualCounts] maps plant number to the whole-plant hand count; the manual cell is empty when there is
+ * none (never 0). Fields are quoted per RFC 4180 when needed. Lines end with LF.
+ */
+fun plantsCsv(plants: List<PlantRecord>, classNames: List<String>, manualCounts: Map<Int, Int?>): String {
+    val sb = StringBuilder("plant")
+    for (name in classNames) sb.append(',').append(csvField(name))
+    sb.append(",total,manual\n")
     for (p in plants) {
-        require(p.counts.perClass.size == CSV_CLASSES) {
-            "plant ${p.plantNumber}: expected $CSV_CLASSES classes, got ${p.counts.perClass.size}"
+        require(p.counts.perClass.size == classNames.size) {
+            "plant ${p.plantNumber}: expected ${classNames.size} classes, got ${p.counts.perClass.size}"
         }
         sb.append(p.plantNumber)
         for (c in p.counts.perClass) sb.append(',').append(c)
-        sb.append(',').append(p.counts.total).append(',').append(p.manualCount?.toString() ?: "").append('\n')
+        sb.append(',').append(p.counts.total).append(',').append(manualCounts[p.plantNumber]?.toString() ?: "").append('\n')
     }
     return sb.toString()
 }
+
+private fun csvField(s: String): String =
+    if (s.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) "\"" + s.replace("\"", "\"\"") + "\"" else s

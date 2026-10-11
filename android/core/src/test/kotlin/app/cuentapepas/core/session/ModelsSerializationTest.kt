@@ -2,23 +2,29 @@ package app.cuentapepas.core.session
 
 import app.cuentapepas.core.count.ClassCounts
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ModelsSerializationTest {
-    private val json = Json
+    private val json = SessionJson
 
     @Test fun sessionMetaRoundTrip() {
-        val m = SessionMeta("s1", "L", 3, Side.B, 1, 2, true, false, 10L, null, SessionStatus.ACTIVE, "0.1", "yolox", mapOf("a" to "b"))
+        val m = SessionMeta("s1", "L", 3, Side.B, 1, 2, true, false, 10L, null, SessionStatus.ACTIVE, "0.1", "yolox", mapOf("a" to "b"), 7L)
         assertEquals(m, json.decodeFromString<SessionMeta>(json.encodeToString(m)))
+        val ab = m.copy(status = SessionStatus.ABANDONED)
+        assertEquals(ab, json.decodeFromString<SessionMeta>(json.encodeToString(ab)))
     }
 
-    @Test fun plantRecordRoundTrip() {
-        val p = PlantRecord("s1", 4, ClassCounts(intArrayOf(1, 2, 3, 4, 5)), 1L, 2L, 17)
+    @Test fun plantRecordAndManualCountRoundTrip() {
+        val p = PlantRecord("s1", 4, ClassCounts(intArrayOf(1, 2, 3, 4, 5)), 1L, 2L)
         assertEquals(p, json.decodeFromString<PlantRecord>(json.encodeToString(p)))
-        val q = p.copy(endedAtMs = null, manualCount = null)
+        val q = p.copy(endedAtMs = null)
         assertEquals(q, json.decodeFromString<PlantRecord>(json.encodeToString(q)))
+        val m = ManualCount("L", 2, 4, 17, 99L)
+        assertEquals(m, json.decodeFromString<ManualCount>(json.encodeToString(m)))
+        assertEquals(PlantKey("L", 2, 4), m.key)
     }
 
     @Test fun otherModelsRoundTrip() {
@@ -28,5 +34,21 @@ class ModelsSerializationTest {
         assertEquals(g, json.decodeFromString<GpsPoint>(json.encodeToString(g)))
         val st = SessionStats(10, 1.0, null, null, 5.0, 9.0, "GPU", 1, 80, null, null, mapOf("blur" to 0.1), null, null)
         assertEquals(st, json.decodeFromString<SessionStats>(json.encodeToString(st)))
+    }
+
+    @Test fun unknownKeysAreIgnored() {
+        val l = json.decodeFromString<Lot>("""{"id":"L","name":"x","totalPlants":null,"cherriesPerKg":1.5,"createdAtMs":3,"futureField":[1,2]}""")
+        assertEquals(Lot("L", "x", null, 1.5, 3L), l)
+        val g = json.decodeFromString<GpsPoint>("""{"tMs":1,"lat":4.0,"lon":-75.0,"accuracyM":2.0,"extra":"y"}""")
+        assertEquals(GpsPoint(1, 4.0, -75.0, 2f), g)
+    }
+
+    @Test fun sessionStatsRejectsNonFiniteValues() {
+        fun st(fps: Double? = 1.0, dur: Double = 1.0, warn: Map<String, Double> = emptyMap()) =
+            SessionStats(1, dur, fps, null, null, null, "CPU", 0, null, null, null, warn, null, null)
+        assertThrows(IllegalArgumentException::class.java) { st(fps = Double.NaN) }
+        assertThrows(IllegalArgumentException::class.java) { st(dur = Double.POSITIVE_INFINITY) }
+        assertThrows(IllegalArgumentException::class.java) { st(warn = mapOf("blur" to Double.NaN)) }
+        assertNull(st(fps = null).fpsMedian)
     }
 }

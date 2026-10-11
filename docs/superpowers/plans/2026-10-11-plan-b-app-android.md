@@ -442,6 +442,20 @@ class LetterboxTest {
   - El viaje JSON de ida y vuelta conserva igualdad para `SessionMeta` y `PlantRecord`.
 - [ ] **Step 2: Implementar.** **Step 3:** PASS. **Step 4: Commit** `feat(core): session models, repeated-pass resolution, GPS overlap and perf stats`.
 
+### Enmiendas a B7 tras revisión (2026-10-11)
+
+- **Conteos manuales fuera de `PlantRecord`:** se elimina `PlantRecord.manualCount`. Nuevo `@Serializable ManualCount(lotId, row, plantNumber, count, enteredAtMs)` con `key: PlantKey`, guardado por planta. Repetir un recorrido nunca borra los conteos manuales. Si hay varios para la misma planta, vale el de mayor `enteredAtMs`.
+- **Orden por `seq`:** `SessionMeta` añade `seq: Long`, asignado por el almacén y estrictamente creciente. "Más reciente" es el `seq` máximo; `startedAtMs` queda solo para mostrar.
+- **`SessionStatus.ABANDONED`:** la app se cerró a mitad de la grabación. Transiciones: ACTIVE → COMPLETED | ABANDONED; COMPLETED → REPLACED. ACTIVE, REPLACED y ABANDONED se ignoran al resolver.
+- **`conflictingSession`** devuelve la sesión COMPLETED más reciente de (lote, surco, lado) o `null`. No lanza excepción.
+- **`effectivePlants`** devuelve `Resolution(plants: Map<PlantKey, Map<Side, PlantRecord>>, issues: List<ResolutionIssue(kind, message)>)`. Gana la sesión COMPLETED más reciente de cada (lote, surco, lado), completa. Las anomalías no fatales son avisos en español: varias sesiones COMPLETED (gana la última), registros de una sesión desconocida (se ignoran) y número de planta repetido dentro de una sesión (se conserva el último por `endedAtMs`, y a igualdad el último de la lista). Los registros de sesiones ACTIVE/REPLACED/ABANDONED se ignoran sin aviso porque es lo esperado. Solo un estado imposible (id de sesión duplicado) lanza `DataIntegrityException`.
+- **`calibrationSamples(sessions, plants, manualCounts: List<ManualCount>)`** devuelve `CalibrationSet(samples, skipped: List<SkippedPlant(plantId, reason)>)`. Toda planta con conteo manual es muestra; `isCalibrationSample` queda solo como metadato de la interfaz. `visible` es el promedio redondeado de `counts.total` de los lados efectivos. Sin recorrido efectivo: "Sin recorrido para esta planta". Conteo negativo: "Conteo manual inválido". No lanza excepción con datos normales.
+- **GPS:** `isValidPoint` exige lat/lon finitos y en rango, distinto de (0, 0), y precisión finita ≥ 0. `goodPoints` también descarta los puntos inválidos. `overlapFraction` devuelve `Double?` y es `null` ("GPS insuficiente") si algún recorrido tiene menos de 5 puntos buenos. El radio de cada par es `max(3 m, accNuevo + accViejo)` con tope de 15 m. El resultado es simétrico, `min(nuevo-en-viejo, viejo-en-nuevo)`, para que una sesión corta dentro de una larga no dé 1.0. Cálculo O(n) esperado: proyección equirrectangular y cuadrícula de 15 m. `possibleRepeats` devuelve `RepeatCheck(repeats, unverifiable)`.
+- **JSON compartido:** `SessionJson` (`ignoreUnknownKeys = true`, `encodeDefaults = true`). `SessionStats` valida en `init` que los números sean finitos (los nulos siguen permitidos).
+- **CSV:** `plantsCsv(plants, classNames: List<String>, manualCounts: Map<Int, Int?>)`. La cabecera sale de `classNames` (orden de `model.json`) y la columna `manual` del mapa por número de planta; vacía si no hay dato. Los campos con comas o comillas se escapan.
+- **`PerfStats`:** las muestras inválidas (no finitas, negativas o intervalo 0) no lanzan excepción: se ignoran y se cuentan en `droppedSamples`. Almacenamiento en `DoubleArray` creciente y copia ordenada en caché hasta la siguiente muestra.
+- **Pruebas añadidas:** dos pasadas COMPLETED (gana la última, con aviso), el conteo manual sobrevive a repetir un recorrido, planta sin lado efectivo omitida con motivo, umbral de `possibleRepeats` en 0.69 y 0.70, GPS insuficiente (`null` / `unverifiable`), coordenadas inválidas descartadas, ABANDONED ignorada, clave JSON desconocida.
+
 ---
 
 ### Task B8: Almacenamiento, ajustes y exportación (app)
