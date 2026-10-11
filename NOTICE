@@ -1,5 +1,4 @@
-Cuentapepas
-Copyright (c) Cuentapepas contributors. Licensed under the MIT License.
+Cuentapepas — Copyright (c) 2026 korredor07 — código bajo licencia MIT (ver LICENSE)
 
 Este producto usa los siguientes componentes y datos de terceros:
 
@@ -9,13 +8,25 @@ Este producto usa los siguientes componentes y datos de terceros:
 
 2. Croppie coffee Uganda
    Copyright (c) 2024 Producers Direct y Alliance Bioversity & CIAT. Licencia CC BY-SA 4.0.
+   Texto de la licencia: https://creativecommons.org/licenses/by-sa/4.0/
    https://huggingface.co/datasets/rgautroncgiar/croppie_coffee_ug
-   Los pesos del modelo entrenados con estos datos se distribuyen con esta atribución.
+   Modificaciones: clases re-mapeadas a la taxonomía v1 (data/taxonomy.yaml), cajas `low_visibility_unsure`
+   descartadas, re-partición por sesión de captura; no se redistribuyen las imágenes.
+   Los pesos del modelo entrenados con estos datos se distribuyen con esta atribución (ver "Licencia de los
+   pesos del modelo").
 
 3. Pesos preentrenados COCO de YOLOX
    El dataset COCO se distribuye bajo CC BY 4.0, con imágenes sujetas a los términos de Flickr.
    https://cocodataset.org/#termsofuse
 
 4. TensorFlow Lite
-   Copyright (c) Google LLC. Licencia Apache-2.0.
+   Copyright (c) The TensorFlow Authors. Licencia Apache-2.0.
    https://www.tensorflow.org/lite
+
+Licencia de los pesos del modelo
+--------------------------------
+Los pesos del modelo entrenado (archivos `*.tflite`, `*.onnx` y `*.pth` derivados del entrenamiento con Croppie
+coffee Uganda) son material adaptado de ese conjunto de datos y se distribuyen bajo la licencia CC BY-SA 4.0
+(ShareAlike): https://creativecommons.org/licenses/by-sa/4.0/. Esta licencia es independiente de la del código,
+que sigue bajo licencia MIT (ver LICENSE). La atribución exigida es la de la entrada 2 de este aviso (Croppie
+coffee Uganda), incluida la declaración de modificaciones.

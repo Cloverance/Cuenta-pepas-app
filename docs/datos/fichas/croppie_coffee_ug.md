@@ -52,11 +52,16 @@ mismas fotos al entrenar.
 Corrección aplicada (`ml/src/cuentapepas/datasets/coco_build.py`):
 
 1. Se juntan las imágenes de ambas particiones.
-2. Se agrupan por id original y se asigna el split por grupo (semilla fija, 15 % de grupos a `val`), de modo
-   que todos los recortes de una misma foto quedan en el mismo split.
-3. Se excluyen los ids listados en `_pictures_to_exclude.txt` (`1688117174257`, `1688718305705`).
-4. El manifiesto `data/manifests/croppie_v1.jsonl` registra el split y el sha256 de cada imagen para que la
-   partición sea reproducible y auditable.
+2. Se agrupan por sesión de captura y se asigna el split por grupo (semilla fija, 15 % de grupos a `val`), de
+   modo que todos los recortes de una misma foto, y todas las fotos de una misma sesión, quedan en el mismo
+   split. Los ids originales son marcas de tiempo en milisegundos (época Unix); se ordenan numéricamente y una
+   sesión nueva empieza cuando el hueco con la foto anterior supera 5 minutos (300 s). El id de la sesión es el
+   de su primera foto. Con `group_gap_seconds=None` se agrupa por id original, sin sesiones.
+3. Se descartan los ids listados en `_pictures_to_exclude.txt` (`1688117174257`, `1688718305705`). Esos dos
+   ids no están en los zips descargados: el README declara 633 fotos originales y los zips contienen 631. La
+   exclusión se mantiene como salvaguarda defensiva, sin efecto (no-op) sobre los datos actuales.
+4. El manifiesto `data/manifests/croppie_v1.jsonl` registra el split, el grupo (sesión) y el sha256 de cada
+   imagen para que la partición sea reproducible y auditable.
 
 ## Sesgos y limitaciones conocidas
 
@@ -69,6 +74,12 @@ Corrección aplicada (`ml/src/cuentapepas/datasets/coco_build.py`):
 - Cajas parciales: se anotan frutos parcialmente visibles (anotación amodal parcial), lo que afecta cómo se
   deben interpretar los falsos positivos en frutos tapados.
 - Desbalance: rojo y verde dominan; sobremaduro es menos del 5 % de las cajas.
+- Casi duplicados en el tiempo: fotos tomadas con segundos de diferencia sobre el mismo árbol o rama son
+  casi idénticas, aunque tengan ids originales distintos. Mitigación: la partición se hace por sesión de
+  captura (hueco de más de 5 minutos entre fotos consecutivas), no por foto. Riesgo restante: dos sesiones
+  distintas del mismo productor o del mismo árbol (por ejemplo, de días diferentes) pueden caer en lados
+  opuestos del split y parecerse mucho; el 5 minutos es un umbral heurístico, no una garantía de independencia.
+  Por eso la métrica en `val` sigue siendo algo optimista respecto de fincas nunca vistas.
 
 ## Cómo citar
 
@@ -76,4 +87,5 @@ Croppie, 2024. *Croppie coffee Uganda* [conjunto de datos]. Producers Direct y A
 licenciado bajo CC BY-SA 4.0. https://huggingface.co/datasets/rgautroncgiar/croppie_coffee_ug
 
 El dataset nunca se redistribuye con este repositorio (`data/local/` está fuera de git). Los pesos entrenados con
-estos datos se distribuyen con la atribución indicada en `NOTICE`.
+estos datos son material adaptado y se distribuyen bajo CC BY-SA 4.0 (ShareAlike), con la atribución y la
+declaración de modificaciones indicadas en `NOTICE`; el código del proyecto sigue bajo licencia MIT.

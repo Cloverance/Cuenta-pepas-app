@@ -27,4 +27,6 @@ class_map:
 exclude_original_ids: ["1688117174257", "1688718305705"]
 notes: >
   Las particiones train/val originales comparten 622 de 631 imágenes originales (recortes de la misma foto
-  en ambas). Se re-particiona por id original. Nunca se redistribuye el dataset.
+  en ambas). Se re-particiona por sesión de captura (ids = marcas de tiempo en ms; sesión nueva si el hueco
+  supera 5 min). Los ids de exclude_original_ids no están en los zips descargados (631 originales frente a
+  los 633 del README); se mantienen como salvaguarda. Nunca se redistribuye el dataset.
