@@ -6,4 +6,7 @@
     <files-path
         name="bench"
         path="bench/" />
+    <external-files-path
+        name="movies"
+        path="Movies/" />
 </paths>
