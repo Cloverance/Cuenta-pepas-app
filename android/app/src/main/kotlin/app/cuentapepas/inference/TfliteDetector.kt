@@ -23,6 +23,13 @@ enum class FallbackKind {
     GPU_INIT_FAILED,
 }
 
+/**
+ * The model produced NaN, infinity or (at warm-up) only zeros. Typed so the pipeline counts it as a frame error and the
+ * UI can show it; [message] is Spanish. Deliberately not a [TfliteDetector.ContractViolation]: on the GPU it triggers
+ * the CPU fallback.
+ */
+class ModelOutputInvalidException(message: String) : IllegalStateException(message)
+
 /** [detail] carries the exception text for [FallbackKind.GPU_INIT_FAILED]; it is diagnostic, not for end users. */
 data class DelegateFallback(val kind: FallbackKind, val detail: String? = null)
 
@@ -43,6 +50,9 @@ data class DelegateInfo(val name: String, val fallback: DelegateFallback?)
  *
  * Buffers are reused between calls, so [run] returns the same [FloatArray] every time; copy it if it must outlive
  * the next call. Not safe for concurrent use.
+ *
+ * Output checks: [run] throws [ModelOutputInvalidException] on any non-finite output value; the warm-up (fixed
+ * non-trivial input) also rejects all-zero output, which on the GPU means falling back to the CPU.
  *
  * Contract checks (all throw, none are silently tolerated): the model input must be float32 `[1, H, W, 3]`
  * with the spec's size, `input.range` must be `[0, 255]`, and the interpreter's output shape must equal
@@ -179,10 +189,29 @@ class TfliteDetector(
         }
     }
 
+    /**
+     * Runs a fixed, non-trivial input (a deterministic pattern covering the 0..255 range, not zeros) and checks the
+     * output without comparing it to another delegate: every value must be finite and not all of them zero. A GPU
+     * delegate that builds fine but returns NaN/zeros would otherwise count nothing, silently.
+     * @throws ModelOutputInvalidException when the output is unusable.
+     */
     private fun warmUp(interp: Interpreter) {
-        val zeros = ByteBuffer.allocateDirect(inputBytes).order(ByteOrder.nativeOrder())
+        val pattern = ByteBuffer.allocateDirect(inputBytes).order(ByteOrder.nativeOrder())
+        val floats = pattern.asFloatBuffer()
+        for (i in 0 until floats.capacity()) floats.put(((i * 37 + (i / 7) * 101) % 256).toFloat())
         outputBytes.clear()
-        interp.run(zeros, outputBytes)
+        interp.run(pattern, outputBytes)
+        outputFloats.rewind()
+        outputFloats.get(outputArray)
+        val bad = firstNonFinite(outputArray)
+        if (bad >= 0) {
+            throw ModelOutputInvalidException(
+                "El modelo devolvió un valor no válido (${outputArray[bad]}) en la posición $bad durante el calentamiento",
+            )
+        }
+        if (outputArray.all { it == 0f }) {
+            throw ModelOutputInvalidException("El modelo devolvió solo ceros durante el calentamiento con una entrada no trivial")
+        }
     }
 
     /**
@@ -206,7 +235,18 @@ class TfliteDetector(
         interp.run(view, outputBytes)
         outputFloats.rewind()
         outputFloats.get(outputArray)
+        val bad = firstNonFinite(outputArray)
+        if (bad >= 0) {
+            throw ModelOutputInvalidException(
+                "La salida del modelo contiene un valor no válido (${outputArray[bad]}) en la posición $bad",
+            )
+        }
         return outputArray
+    }
+
+    private fun firstNonFinite(values: FloatArray): Int {
+        for (i in values.indices) if (!values[i].isFinite()) return i
+        return -1
     }
 
     private fun checkThread() {

@@ -8,13 +8,21 @@ data class PlantKey(val lotId: String, val row: Int, val plantNumber: Int)
 /** An impossible store state (not ordinary user data), e.g. two sessions sharing one id. */
 class DataIntegrityException(message: String) : RuntimeException(message)
 
-enum class IssueKind { MULTIPLE_COMPLETED, UNKNOWN_SESSION, DUPLICATE_PLANT }
+enum class IssueKind { MULTIPLE_COMPLETED, UNKNOWN_SESSION, DUPLICATE_PLANT, NO_FRAMES_OBSERVED }
 
 /** A non-fatal anomaly found while resolving passes; [message] is Spanish and can be shown to the user. */
 data class ResolutionIssue(val kind: IssueKind, val message: String)
 
-/** [plants] holds at most one effective record per side of every plant; [issues] lists what was ignored or overridden. */
-data class Resolution(val plants: Map<PlantKey, Map<Side, PlantRecord>>, val issues: List<ResolutionIssue>)
+/**
+ * [plants] holds at most one effective record per side of every plant; [issues] lists what was ignored or overridden.
+ * Records known to have been observed in zero frames ([PlantRecord.hasData] false) are not in [plants]; [noData] lists
+ * the plants that lost every side that way (they are "no data", not "0 cherries").
+ */
+data class Resolution(
+    val plants: Map<PlantKey, Map<Side, PlantRecord>>,
+    val issues: List<ResolutionIssue>,
+    val noData: Set<PlantKey> = emptySet(),
+)
 
 data class SkippedPlant(val plantId: String, val reason: String)
 
@@ -101,20 +109,30 @@ object PassResolver {
             )
         }
 
-        val out = java.util.TreeMap<PlantKey, MutableMap<Side, PlantRecord>>(
-            compareBy({ it.lotId }, { it.row }, { it.plantNumber }),
-        )
+        val keyOrder = compareBy<PlantKey>({ it.lotId }, { it.row }, { it.plantNumber })
+        val out = java.util.TreeMap<PlantKey, MutableMap<Side, PlantRecord>>(keyOrder)
+        val empty = java.util.TreeSet<PlantKey>(keyOrder)
         for ((k, rec) in chosen) {
             val s = byId.getValue(k.first)
-            out.getOrPut(PlantKey(s.lotId, s.row, rec.plantNumber)) { java.util.EnumMap(Side::class.java) }[s.side] = rec
+            val pk = PlantKey(s.lotId, s.row, rec.plantNumber)
+            if (!rec.hasData) {
+                empty += pk
+                issues += ResolutionIssue(
+                    IssueKind.NO_FRAMES_OBSERVED,
+                    "La planta ${rec.plantNumber} del surco ${s.row} lado ${s.side} no tiene cuadros observados " +
+                        "(sin dato); se excluye.",
+                )
+                continue
+            }
+            out.getOrPut(pk) { java.util.EnumMap(Side::class.java) }[s.side] = rec
         }
-        return Resolution(out, issues)
+        return Resolution(out, issues, empty.filterTo(java.util.TreeSet(keyOrder)) { it !in out })
     }
 
     /**
      * One sample per plant that has a [ManualCount] (the latest by enteredAtMs if several), whatever the session's
      * isCalibrationSample flag says (that flag is UI metadata only). `visible` is the rounded mean of the effective
-     * sides' `counts.total`. Plants that cannot be used go to [CalibrationSet.skipped] with a Spanish reason.
+     * sides' `counts.total`; sides observed in zero frames are excluded (see [Resolution.noData]). Plants that cannot be used go to [CalibrationSet.skipped] with a Spanish reason.
      * @throws DataIntegrityException only for impossible store states (see [effectivePlants]).
      */
     fun calibrationSamples(
@@ -122,7 +140,9 @@ object PassResolver {
         plants: List<PlantRecord>,
         manualCounts: List<ManualCount>,
     ): CalibrationSet {
-        val resolved = effectivePlants(sessions, plants).plants
+        val resolution = effectivePlants(sessions, plants)
+        val resolved = resolution.plants
+        val noData = resolution.noData
         val latest = LinkedHashMap<PlantKey, ManualCount>()
         for (m in manualCounts) {
             val prev = latest[m.key]
@@ -137,6 +157,8 @@ object PassResolver {
             val sides = resolved[key]
             when {
                 m.count < 0 -> skipped += SkippedPlant(id, "Conteo manual inválido")
+                sides.isNullOrEmpty() && key in noData ->
+                    skipped += SkippedPlant(id, "Sin cuadros observados en esta planta (sin dato)")
                 sides.isNullOrEmpty() -> skipped += SkippedPlant(id, "Sin recorrido para esta planta")
                 else -> {
                     val visible = sides.values.map { it.counts.total }.average().roundToInt()

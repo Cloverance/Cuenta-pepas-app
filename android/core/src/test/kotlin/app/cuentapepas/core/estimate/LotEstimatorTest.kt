@@ -189,4 +189,34 @@ class LotEstimatorTest {
         val plants = randomPlants(11) + plant("odd", intArrayOf(1, 2))
         LotEstimator.estimate(LotInput(1000, plants, emptyList(), null))
     }
+
+    @Test fun plantsWithoutObservedFramesAreExcluded() {
+        val real = randomPlants(10)
+        val ghosts = List(5) { PlantVisible("g$it", listOf(ClassCounts(intArrayOf(0, 0, 0))), framesObserved = 0) }
+        val e = LotEstimator.estimate(LotInput(100, real + ghosts, emptyList(), null))
+        assertEquals(10, e.plantsVisited)
+        assertEquals(0.1, e.coverage!!, 1e-12)
+        assertEquals(meanVisible(real), e.visiblePerPlant!!.value, 1e-9) // ghosts do not drag the mean to 0
+        assertTrue(e.notes.contains("Se excluyeron 5 planta(s) sin cuadros observados (sin dato)"))
+    }
+
+    @Test fun unknownCoverageIsUsedAndGhostsCanLeaveInsufficientEvidence() {
+        val legacy = randomPlants(10).map { it.copy(framesObserved = null) }
+        assertEquals(10, LotEstimator.estimate(LotInput(null, legacy, emptyList(), null)).plantsVisited)
+        val ghosts = randomPlants(10).map { it.copy(framesObserved = 0) }
+        val e = LotEstimator.estimate(LotInput(null, ghosts, emptyList(), null))
+        assertEquals(LotStatus.INSUFFICIENT_EVIDENCE, e.status)
+        assertEquals(0, e.plantsVisited)
+        assertNull(e.visiblePerPlant)
+    }
+
+    @Test fun fromRecordsDropsSidesWithoutData() {
+        fun rec(total: Int, frames: Int?) =
+            app.cuentapepas.core.session.PlantRecord("s", 1, ClassCounts(intArrayOf(total, 0)), 0, null, framesObserved = frames)
+        val both = PlantVisible.fromRecords("p", listOf(rec(10, 5), rec(0, 0)))!!
+        assertEquals(1, both.sides.size)
+        assertEquals(5, both.framesObserved)
+        assertNull(PlantVisible.fromRecords("p", listOf(rec(0, 0))))
+        assertNull(PlantVisible.fromRecords("p", listOf(rec(3, null), rec(2, 4)))!!.framesObserved)
+    }
 }

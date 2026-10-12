@@ -1,5 +1,6 @@
 package app.cuentapepas.ui.newsession
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardOptions
@@ -67,6 +68,7 @@ fun NewSessionScreen(lotId: String, onBack: () -> Unit, onStarted: (sessionId: S
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { services.modelSpec }
             null
         } catch (e: ModelException) {
+            Log.e("Cuentapepas", "Model unavailable for a new session", e)
             context.describe(e)
         }
     }
@@ -102,6 +104,7 @@ fun NewSessionScreen(lotId: String, onBack: () -> Unit, onStarted: (sessionId: S
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.e("Cuentapepas", "Cannot create the session", e)
                 error = context.describe(e)
             } finally {
                 busy = false
@@ -125,6 +128,7 @@ fun NewSessionScreen(lotId: String, onBack: () -> Unit, onStarted: (sessionId: S
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.e("Cuentapepas", "Cannot check for a repeated pass", e)
                 busy = false
                 error = context.describe(e)
             }
@@ -161,6 +165,8 @@ fun NewSessionScreen(lotId: String, onBack: () -> Unit, onStarted: (sessionId: S
             FilterChip(selected = step == 1, onClick = { step = 1 }, label = { Text(stringResource(R.string.new_direction_up)) })
             FilterChip(selected = step == -1, onClick = { step = -1 }, label = { Text(stringResource(R.string.new_direction_down)) })
         }
+        // A descending pass cannot go below plant 1: say so before it starts, not at the end of the row.
+        if (step == -1) Text(stringResource(R.string.new_descending_note), style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Checkbox(checked = calibration, onCheckedChange = { calibration = it })
             Text(stringResource(R.string.new_calibration))

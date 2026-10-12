@@ -1,6 +1,7 @@
 package app.cuentapepas.pipeline
 
 import app.cuentapepas.core.count.ClassCounts
+import app.cuentapepas.core.live.PlantCoverage
 import app.cuentapepas.core.quality.QualitySample
 import app.cuentapepas.core.quality.QualityWarning
 import app.cuentapepas.core.quality.Shift
@@ -37,6 +38,9 @@ import app.cuentapepas.inference.DelegateFallback
  *   means something went wrong at least once, [errorCount] says how many times.
  * @property errorCount frames that failed since the session started.
  * @property loggingError technical description of an evaluation-log failure, or null.
+ * @property plantCoverage frames seen for the active plant (counted / paused / failed); observed == 0 means the
+ *   plant's counts are "no data", not zero cherries.
+ * @property framesDroppedByThrottle frames skipped so far because the device was too hot.
  */
 data class FrameResult(
     val frameIndex: Long,
@@ -62,6 +66,8 @@ data class FrameResult(
     val errorMessage: String?,
     val errorCount: Int,
     val loggingError: String?,
+    val plantCoverage: PlantCoverage = PlantCoverage(),
+    val framesDroppedByThrottle: Int = 0,
 ) {
     companion object {
         /** State before any frame: no tracks, zero counts, no data. */

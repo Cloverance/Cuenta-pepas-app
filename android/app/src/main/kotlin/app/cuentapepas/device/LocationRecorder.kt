@@ -7,6 +7,8 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import app.cuentapepas.core.session.GpsPoint
 import kotlinx.coroutines.CoroutineScope
@@ -44,7 +46,9 @@ sealed interface GpsState {
  * Records GPS points of a live session: `LocationManager.GPS_PROVIDER` every 1000 ms with no distance filter. Points
  * (only fixes that report an accuracy) are kept in memory ([points]) and handed to [sink] in batches every
  * [flushEveryMs]; a batch whose [sink] call throws stays pending and is retried with the next flush, and the failure
- * is exposed in [sinkError]. Without permission the recorder stays idle in [GpsState.NoPermission].
+ * is exposed in [sinkError] (and [sinkFailures] counts every failed batch, even if a retry later succeeded). At the end of
+ * a session the caller must check [unsavedCount] and [sinkError] after the final [flush]: unsaved points are an error,
+ * never silently dropped. Without permission the recorder stays idle in [GpsState.NoPermission].
  *
  * Main-thread API ([start], [stop]); [points], [lastAccuracyM] and [state] can be read from anywhere.
  */
@@ -54,6 +58,7 @@ class LocationRecorder(
     private val sink: suspend (List<GpsPoint>) -> Unit,
     private val flushEveryMs: Long = 10_000,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val elapsed: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -73,6 +78,25 @@ class LocationRecorder(
 
     @Volatile var sinkError: String? = null
         private set
+
+    /** Batches whose save failed since [start], including ones a later retry saved. */
+    @Volatile var sinkFailures: Int = 0
+        private set
+
+    /** Text of the most recent failed save, kept even after a retry succeeded; null when none ever failed. */
+    @Volatile var lastSinkFailure: String? = null
+        private set
+
+    @Volatile private var lastFixElapsedMs: Long? = null
+
+    /** Points recorded and not yet handed successfully to the sink. */
+    val unsavedCount: Int get() = synchronized(lock) { pending.size }
+
+    /** Number of points recorded so far. */
+    val recordedCount: Int get() = synchronized(lock) { all.size }
+
+    /** Milliseconds since the last fix with accuracy, or null if there was none yet. */
+    fun fixAgeMs(): Long? = lastFixElapsedMs?.let { elapsed() - it }
 
     /** Whether the fine-location permission is currently granted. */
     val hasPermission: Boolean
@@ -105,6 +129,7 @@ class LocationRecorder(
             pending += point
         }
         lastAccuracyM = acc
+        lastFixElapsedMs = elapsed()
         stateFlow.value = GpsState.Fix(acc)
     }
 
@@ -131,9 +156,11 @@ class LocationRecorder(
             }
             true
         } catch (e: SecurityException) {
+            Log.e(TAG, "GPS permission refused", e)
             stateFlow.value = GpsState.NoPermission
             false
         } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "GPS provider unavailable", e)
             stateFlow.value = GpsState.Unavailable(e.message ?: "no GPS provider")
             false
         }
@@ -149,7 +176,11 @@ class LocationRecorder(
             synchronized(lock) { pending.subList(0, batch.size).clear() } // pending is append-only between flushes
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            sinkError = "${e::class.java.simpleName}: ${e.message}" // kept pending, retried on the next flush
+            Log.e(TAG, "Saving ${batch.size} GPS points failed", e)
+            val text = "${e::class.java.simpleName}: ${e.message}"
+            sinkError = text // kept pending, retried on the next flush
+            lastSinkFailure = text
+            sinkFailures++
         }
     }
 
@@ -162,6 +193,7 @@ class LocationRecorder(
                 manager.removeUpdates(listener)
             } catch (e: SecurityException) {
                 // permission revoked while running: nothing is registered any more
+                Log.e(TAG, "GPS permission revoked while recording", e)
             }
             listening = false
         }
@@ -169,5 +201,6 @@ class LocationRecorder(
 
     private companion object {
         const val INTERVAL_MS = 1000L
+        const val TAG = "Cuentapepas"
     }
 }
