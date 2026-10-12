@@ -3,6 +3,7 @@ package app.cuentapepas.data
 import android.content.Context
 import android.content.SharedPreferences
 import app.cuentapepas.core.store.AppSettings
+import app.cuentapepas.core.store.CorruptDataException
 import app.cuentapepas.core.store.KeyValueStore
 import app.cuentapepas.core.store.SettingsRepository
 import java.io.IOException
@@ -26,8 +27,9 @@ class SettingsStore(context: Context, defaults: AppSettings) {
 }
 
 private class PrefsKeyValueStore(private val prefs: SharedPreferences) : KeyValueStore {
-    override fun all(): Map<String, String> =
-        prefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
+    override fun all(): Map<String, String> = prefs.all.mapValues { (k, v) ->
+        v as? String ?: throw CorruptDataException("settings:$k", "valor guardado no es texto (${v?.let { it::class.java.simpleName }})")
+    }
 
     override fun putAll(entries: Map<String, String>) {
         val e = prefs.edit()

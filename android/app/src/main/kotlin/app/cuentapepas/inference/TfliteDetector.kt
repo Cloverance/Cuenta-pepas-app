@@ -38,8 +38,8 @@ data class DelegateInfo(val name: String, val fallback: DelegateFallback?)
  *
  * Construction only locates and maps the model file, so a missing model fails immediately with
  * [ModelMissingException]. The interpreter is built by [initialize] (called by [run] on first use) because the
- * GPU delegate is bound to the thread that creates it: **[initialize], [run] and, ideally, [close] must all be
- * called from the same thread** (the frame-processing thread). [initialize] and [run] enforce this and fail loudly.
+ * GPU delegate is bound to the thread that creates it: **[initialize], [run] and [close] must all be
+ * called from the same thread** (the frame-processing thread). [initialize], [run] and [close] enforce this and fail loudly.
  *
  * Buffers are reused between calls, so [run] returns the same [FloatArray] every time; copy it if it must outlive
  * the next call. Not safe for concurrent use.
@@ -216,9 +216,14 @@ class TfliteDetector(
         }
     }
 
-    /** Releases the interpreter and the GPU delegate. Call it from the thread that ran [initialize]. */
+    /**
+     * Releases the interpreter and the GPU delegate. Must be called from the thread that ran [initialize] (the GPU
+     * delegate is thread-bound), enforced like [run]: another thread gets an [IllegalStateException] and nothing is
+     * released. Closing an already closed detector, or one that was never initialised, is a no-op from any thread.
+     */
     override fun close() {
         if (closed) return
+        if (ownerThread != null) checkThread()
         closed = true
         releaseNative()
     }
