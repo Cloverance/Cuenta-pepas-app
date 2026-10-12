@@ -6,6 +6,7 @@ import app.cuentapepas.core.count.TrackCounter
 import app.cuentapepas.core.detect.Detection
 import app.cuentapepas.core.detect.YoloxPostprocessor
 import app.cuentapepas.core.perf.PerfStats
+import app.cuentapepas.core.perf.RollingWindow
 import app.cuentapepas.core.quality.GlobalMotionEstimator
 import app.cuentapepas.core.quality.LumaImage
 import app.cuentapepas.core.quality.QualityAdvisor
@@ -106,8 +107,8 @@ class FrameProcessor(
     private var activePlant: Int? = null
     private var perf = perf
     private var lastFrameEndNs = 0L
-    private var liveMedianMs = Float.NaN
-    private var liveFps = Float.NaN
+    private val recentLatencyMs = RollingWindow()
+    private val recentIntervalMs = RollingWindow()
     private var frameIndex = 0L
     private var errorCount = 0
     private var lastError: String? = null
@@ -164,8 +165,8 @@ class FrameProcessor(
             advisor.reset()
             perf = PerfStats()
             lastFrameEndNs = 0L
-            liveMedianMs = Float.NaN
-            liveFps = Float.NaN
+            recentLatencyMs.clear()
+            recentIntervalMs.clear()
             val st = statusFlow.value
             resultFlow.value = FrameResult.initial(spec.numClasses).copy(
                 delegate = (st as? ProcessorStatus.Ready)?.delegate?.name,
@@ -183,6 +184,14 @@ class FrameProcessor(
      */
     fun <T> withCounter(block: (TrackCounter) -> T): CompletableFuture<T> =
         CompletableFuture.supplyAsync({ block(counter) }, executorService)
+
+    /**
+     * Runs [block] on the processing thread with the session-wide (cumulative) [PerfStats], e.g. to build the
+     * session summary. The stats must not escape [block]. The live figures in [FrameResult] come from a short
+     * rolling window instead, so they follow recent performance.
+     */
+    fun <T> withPerf(block: (PerfStats) -> T): CompletableFuture<T> =
+        CompletableFuture.supplyAsync({ block(perf) }, executorService)
 
     // ---- ImageAnalysis.Analyzer ----
 
@@ -263,13 +272,16 @@ class FrameProcessor(
 
         // 9. Perf.
         perf.addLatencyMs(inferenceMs.toDouble())
-        if (lastFrameEndNs != 0L) perf.addFrameIntervalMs((t1 - lastFrameEndNs) / 1e6)
-        lastFrameEndNs = t1
-        // Quantiles sort the accumulated samples, so refresh the published values only every few frames.
-        if (seen % PERF_REFRESH_FRAMES == 1L || liveMedianMs.isNaN()) {
-            liveMedianMs = perf.inferenceMsMedian?.toFloat() ?: Float.NaN
-            liveFps = perf.fpsMedian?.toFloat() ?: Float.NaN
+        recentLatencyMs.add(inferenceMs.toDouble())
+        if (lastFrameEndNs != 0L) {
+            val intervalMs = (t1 - lastFrameEndNs) / 1e6
+            perf.addFrameIntervalMs(intervalMs)
+            if (intervalMs > 0.0) recentIntervalMs.add(intervalMs)
         }
+        lastFrameEndNs = t1
+        // Live figures: median over the last ~60 processed frames (bounded ring buffer, sorted copy of <= 60 values).
+        val liveMedianMs = recentLatencyMs.median()?.toFloat() ?: Float.NaN
+        val liveFps = recentIntervalMs.median()?.let { (1000.0 / it).toFloat() } ?: Float.NaN
 
         if (stageError != null) {
             errorCount++
@@ -342,6 +354,5 @@ class FrameProcessor(
 
     private companion object {
         const val CLOSE_TIMEOUT_S = 10L
-        const val PERF_REFRESH_FRAMES = 10L
     }
 }
