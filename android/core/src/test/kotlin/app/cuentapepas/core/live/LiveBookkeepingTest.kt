@@ -15,6 +15,7 @@ class LiveBookkeepingTest {
     @Test fun plantLogAdvancesByStepAndClosesRecords() {
         val log = PlantLog("s1", firstPlant = 10, plantStep = 2, startedAtMs = 1_000)
         assertEquals(10, log.currentPlant)
+        assertEquals(12, log.nextPlant)
         val first = log.advance(counts(1, 2), nowMs = 5_000)
         assertEquals(10, first.plantNumber)
         assertEquals(1_000L, first.startedAtMs)

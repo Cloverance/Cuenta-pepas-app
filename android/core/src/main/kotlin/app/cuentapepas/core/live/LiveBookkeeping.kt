@@ -25,6 +25,9 @@ class PlantLog(
     var currentPlant: Int = firstPlant
         private set
 
+    /** The plant [advance] will switch to. */
+    val nextPlant: Int get() = currentPlant + plantStep
+
     private var currentStartedAtMs = startedAtMs
     private val closed = ArrayList<PlantRecord>()
 
