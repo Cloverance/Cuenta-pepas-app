@@ -94,14 +94,20 @@ internal fun StatusBar(hud: LiveHud, evaluationMode: Boolean, modifier: Modifier
         StatusText(
             hud.batteryPct?.let { stringResource(R.string.live_battery, it) } ?: stringResource(R.string.live_battery_unknown),
         )
-        val gpsColor = if (hud.gps is GpsState.Fix) Color.White else WarnAmber
+        // A fix older than GPS_STALE_MS no longer says "±x m": the signal is lost until a new fix arrives.
+        val stale = (hud.gps as? GpsState.Fix)?.let { (hud.gpsFixAgeMs ?: Long.MAX_VALUE) > LiveHud.GPS_STALE_MS } ?: false
+        val gpsGood = hud.gps is GpsState.Fix && !stale
+        val gpsColor = if (gpsGood) Color.White else WarnAmber
+        val pts = hud.gpsPoints
         StatusText(
             when (val g = hud.gps) {
-                is GpsState.Fix -> stringResource(R.string.live_gps_accuracy, Math.round(g.accuracyM))
+                is GpsState.Fix ->
+                    if (stale) stringResource(R.string.live_gps_stale, pts)
+                    else stringResource(R.string.live_gps_accuracy_points, Math.round(g.accuracyM), pts)
                 GpsState.NoPermission -> stringResource(R.string.live_gps_no_permission)
                 GpsState.ProviderOff -> stringResource(R.string.live_gps_off)
-                is GpsState.Unavailable -> stringResource(R.string.live_gps_unavailable)
-                GpsState.Idle, GpsState.Searching -> stringResource(R.string.live_gps_searching)
+                is GpsState.Unavailable -> stringResource(R.string.live_gps_unavailable_reason, g.reason)
+                GpsState.Idle, GpsState.Searching -> stringResource(R.string.live_gps_searching_points, pts)
             },
             color = gpsColor,
         )

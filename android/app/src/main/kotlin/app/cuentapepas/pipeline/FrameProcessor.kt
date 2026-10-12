@@ -1,10 +1,13 @@
 package app.cuentapepas.pipeline
 
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import app.cuentapepas.core.count.TrackCounter
 import app.cuentapepas.core.detect.Detection
 import app.cuentapepas.core.detect.YoloxPostprocessor
+import app.cuentapepas.core.count.ClassCounts
+import app.cuentapepas.core.live.PlantCoverage
 import app.cuentapepas.core.perf.PerfStats
 import app.cuentapepas.core.perf.RollingWindow
 import app.cuentapepas.core.quality.GlobalMotionEstimator
@@ -19,11 +22,14 @@ import app.cuentapepas.core.track.TrackSnapshot
 import app.cuentapepas.device.DeviceMonitor
 import app.cuentapepas.inference.DelegateInfo
 import app.cuentapepas.inference.FramePreprocessor
+import app.cuentapepas.inference.ModelOutputInvalidException
 import app.cuentapepas.inference.TfliteDetector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.Callable
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -39,6 +45,21 @@ sealed interface ProcessorStatus {
     /** Initialisation failed; [error] is typed (e.g. a `ModelException`) so the UI can pick its message. */
     data class Failed(val error: Throwable) : ProcessorStatus
 }
+
+/** Counts and frame coverage of the active plant, read on the processing thread in one step. */
+data class PlantSnapshot(val plantNumber: Int, val counts: ClassCounts, val coverage: PlantCoverage)
+
+/** Result of [FrameProcessor.switchPlant]. */
+sealed interface PlantSwitch {
+    /** The processor moved on; [closed] is the plant that was just closed (its final counts and coverage). */
+    data class Switched(val closed: PlantSnapshot) : PlantSwitch
+
+    /** Nothing changed: the current plant has not seen a single processed frame yet. */
+    data class NoFrames(val current: PlantSnapshot) : PlantSwitch
+}
+
+/** Session-wide error/throttle counters, for the session stats. */
+data class ProcessorTotals(val framesErrored: Int, val framesDroppedByThrottle: Int, val loggingError: String?)
 
 /**
  * Per-frame pipeline: camera frame -> preprocessing -> camera motion -> quality -> detector -> postprocessing ->
@@ -111,6 +132,10 @@ class FrameProcessor(
     private val recentIntervalMs = RollingWindow()
     private var frameIndex = 0L
     private var errorCount = 0
+    private var throttleDropped = 0
+    private var plantObserved = 0
+    private var plantPausedFrames = 0
+    private var plantErrored = 0
     private var lastError: String? = null
     private var prevLuma: LumaImage? = null
     private var prevTsNs = 0L
@@ -126,7 +151,8 @@ class FrameProcessor(
             statusFlow.value = ProcessorStatus.Ready(info, detector.modelFileName)
         } catch (t: Throwable) {
             statusFlow.value = ProcessorStatus.Failed(t)
-            lastError = "Detector initialisation failed: ${describe(t)}"
+            Log.e(TAG, "Detector initialisation failed", t)
+            lastError = "No se pudo iniciar el detector: ${describe(t)}"
         }
     }
 
@@ -134,16 +160,48 @@ class FrameProcessor(
 
     /** Starts (or switches to) a plant: cherries confirmed from now on are attributed to it. */
     fun startPlant(plantNumber: Int) {
-        executorService.execute {
-            counter.startPlant(plantNumber)
-            activePlant = plantNumber
-            resultFlow.value = resultFlow.value.copy(
-                plantNumber = plantNumber,
-                currentPlantCounts = counter.currentPlantCounts(),
-                sessionCounts = counter.sessionCounts(),
-            )
-        }
+        executorService.execute { beginPlant(plantNumber) }
     }
+
+    /** Processing thread only: makes [plantNumber] the active plant with fresh frame coverage, and republishes. */
+    private fun beginPlant(plantNumber: Int) {
+        counter.startPlant(plantNumber)
+        activePlant = plantNumber
+        plantObserved = 0
+        plantPausedFrames = 0
+        plantErrored = 0
+        resultFlow.value = resultFlow.value.copy(
+            plantNumber = plantNumber,
+            currentPlantCounts = counter.currentPlantCounts(),
+            sessionCounts = counter.sessionCounts(),
+            plantCoverage = PlantCoverage(),
+        )
+    }
+
+    private fun snapshotActive(): PlantSnapshot {
+        val plant = checkNotNull(activePlant) { "No hay una planta activa" }
+        return PlantSnapshot(plant, counter.plantCounts(plant), PlantCoverage(plantObserved, plantPausedFrames, plantErrored))
+    }
+
+    /** Counts and frame coverage of the active plant (read on the processing thread). */
+    fun snapshotPlant(): CompletableFuture<PlantSnapshot> = CompletableFuture.supplyAsync({ snapshotActive() }, executorService)
+
+    /**
+     * Closes the active plant and starts [next] atomically on the processing thread: the closing plant's counts and
+     * coverage are read and the counter switched with no frame in between, so no cherry lands on the wrong plant.
+     * With [requireFrames] (default) nothing happens when the active plant has not seen a processed frame yet
+     * ([PlantSwitch.NoFrames]), so a key press on a dead camera cannot skip a plant.
+     */
+    fun switchPlant(next: Int, requireFrames: Boolean = true): CompletableFuture<PlantSwitch> =
+        CompletableFuture.supplyAsync({
+            val snap = snapshotActive()
+            if (requireFrames && snap.coverage.processed == 0) {
+                PlantSwitch.NoFrames(snap)
+            } else {
+                beginPlant(next)
+                PlantSwitch.Switched(snap)
+            }
+        }, executorService)
 
     /**
      * Begins a new session on the same (already initialised) detector: swaps in a fresh counter, tracker and
@@ -157,6 +215,10 @@ class FrameProcessor(
             this.tracker = tracker
             this.logger = logger
             activePlant = null
+            plantObserved = 0
+            plantPausedFrames = 0
+            plantErrored = 0
+            throttleDropped = 0
             frameIndex = 0
             errorCount = 0
             lastError = if (statusFlow.value is ProcessorStatus.Failed) lastError else null
@@ -193,6 +255,10 @@ class FrameProcessor(
     fun <T> withPerf(block: (PerfStats) -> T): CompletableFuture<T> =
         CompletableFuture.supplyAsync({ block(perf) }, executorService)
 
+    /** Session-wide failed/skipped frame counters and the evaluation-log error (read on the processing thread). */
+    fun totals(): CompletableFuture<ProcessorTotals> =
+        CompletableFuture.supplyAsync({ ProcessorTotals(errorCount, throttleDropped, logger?.error) }, executorService)
+
     // ---- ImageAnalysis.Analyzer ----
 
     override fun analyze(image: ImageProxy) {
@@ -213,13 +279,16 @@ class FrameProcessor(
         // Never pretend to detect: without a ready detector the frame is an error, reported loudly.
         val ready = when (val st = statusFlow.value) {
             is ProcessorStatus.Ready -> st
-            is ProcessorStatus.Failed -> throw IllegalStateException("Detector unavailable: ${describe(st.error)}", st.error)
-            ProcessorStatus.Initializing -> throw IllegalStateException("Detector is still initialising")
+            is ProcessorStatus.Failed -> throw IllegalStateException("Detector no disponible: ${describe(st.error)}", st.error)
+            ProcessorStatus.Initializing -> throw IllegalStateException("El detector aún se está iniciando")
         }
 
         val thermal = thermalStatus()
         val throttled = thermal >= DeviceMonitor.THERMAL_STATUS_SEVERE
-        if (throttled && seen % 2L == 0L) return // process one frame out of two
+        if (throttled && seen % 2L == 0L) { // process one frame out of two; the skipped one is counted, never hidden
+            throttleDropped++
+            return
+        }
 
         // 1. Preprocess.
         val prep = preprocessor.prepare(image)
@@ -262,9 +331,13 @@ class FrameProcessor(
         if (!isPaused) {
             try {
                 counter.observe(tracks)
+                plantObserved++ // counted while the plant is active and not paused
             } catch (e: Exception) {
                 stageError = e
+                plantErrored++
             }
+        } else if (activePlant != null) {
+            plantPausedFrames++
         }
 
         // 8. Quality warnings.
@@ -285,7 +358,8 @@ class FrameProcessor(
 
         if (stageError != null) {
             errorCount++
-            lastError = "Counting failed on frame $seen: ${describe(stageError)}"
+            Log.e(TAG, "Counting failed on frame $seen", stageError)
+            lastError = "Falló el conteo en el cuadro $seen: ${describe(stageError)}"
         }
 
         // Evaluation log (enqueue only; the writer thread does the I/O).
@@ -316,37 +390,60 @@ class FrameProcessor(
             errorMessage = lastError,
             errorCount = errorCount,
             loggingError = logger?.error,
+            plantCoverage = PlantCoverage(plantObserved, plantPausedFrames, plantErrored),
+            framesDroppedByThrottle = throttleDropped,
         )
         // 11. image.close() happens in analyze()'s finally.
     }
 
     private fun recordFrameError(image: ImageProxy, e: Exception) {
         errorCount++
-        lastError = "Frame $frameIndex: ${describe(e)}"
+        if (activePlant != null) plantErrored++
+        Log.e(TAG, "Frame $frameIndex failed", e)
+        lastError = "Cuadro $frameIndex: ${describe(e)}"
         resultFlow.value = resultFlow.value.copy(
             frameIndex = frameIndex,
             tsNs = image.imageInfo.timestamp,
             errorMessage = lastError,
             errorCount = errorCount,
             loggingError = logger?.error,
+            plantCoverage = PlantCoverage(plantObserved, plantPausedFrames, plantErrored),
+            framesDroppedByThrottle = throttleDropped,
         )
     }
 
-    private fun describe(t: Throwable): String = "${t::class.java.simpleName}: ${t.message}"
+    /** Spanish typed errors are shown as they are; anything else with its class name for diagnosis. */
+    private fun describe(t: Throwable): String =
+        if (t is ModelOutputInvalidException) t.message.orEmpty() else "${t::class.java.simpleName}: ${t.message}"
 
     /**
-     * Stops the processing thread and releases the detector, preprocessor and logger (on that thread, because
-     * the GPU delegate must be closed where it was created). Unbind the camera analyzer first.
+     * Stops the processing thread and releases the logger, detector and preprocessor (on that thread, because the GPU
+     * delegate must be closed where it was created). Each resource is closed in its own try so one failure never
+     * leaks the others; the first error is rethrown after all were attempted (later ones are attached as suppressed).
+     * Unbind the camera analyzer first.
      */
     override fun close() {
         if (closed) return
         closed = true
         try {
-            executorService.submit {
-                logger?.close()
-                detector.close()
-                preprocessor.release()
-            }.get(CLOSE_TIMEOUT_S, TimeUnit.SECONDS)
+            executorService.submit(Callable<Unit> {
+                var first: Throwable? = null
+                fun attempt(what: String, block: () -> Unit) {
+                    try {
+                        block()
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Failed to close $what", t)
+                        val f = first
+                        if (f == null) first = t else f.addSuppressed(t)
+                    }
+                }
+                attempt("evaluation logger") { logger?.close() }
+                attempt("detector") { detector.close() }
+                attempt("preprocessor") { preprocessor.release() }
+                first?.let { throw it }
+            }).get(CLOSE_TIMEOUT_S, TimeUnit.SECONDS)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
         } finally {
             executorService.shutdown()
         }
@@ -354,5 +451,6 @@ class FrameProcessor(
 
     private companion object {
         const val CLOSE_TIMEOUT_S = 10L
+        const val TAG = "Cuentapepas"
     }
 }

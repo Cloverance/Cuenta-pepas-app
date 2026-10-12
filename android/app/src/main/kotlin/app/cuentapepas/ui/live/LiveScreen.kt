@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.Display
 import android.view.Surface
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -133,47 +134,103 @@ fun LiveScreen(sessionId: String, onFinished: (sessionId: String) -> Unit) {
     }
 
     val onBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val hud by vm.hud.collectAsState()
+    val leave by vm.leave.collectAsState()
+    var confirmFinish by remember { mutableStateOf(false) }
+    var allowLeave by remember { mutableStateOf(false) }
+
+    // Leaving the screen (session discarded, or left from a failure panel): disable our back handler, then go back.
+    LaunchedEffect(leave) { if (leave) allowLeave = true }
+    LaunchedEffect(allowLeave) { if (allowLeave) onBackDispatcher?.onBackPressed() }
+
+    // Back never silently drops an ACTIVE session: while counting it asks first, while saving it is ignored, from a
+    // failure panel it saves what exists before leaving, and while the save failed the buttons decide.
+    BackHandler(enabled = !allowLeave && phase !is LivePhase.Loading) {
+        when (phase) {
+            is LivePhase.Ready -> confirmFinish = true
+            is LivePhase.Failed -> vm.leaveSaving()
+            is LivePhase.Finishing, is LivePhase.SaveFailed, LivePhase.Loading -> Unit
+        }
+    }
+
+    // The camera view stays composed (and bound) from Ready through Finishing, so the recording can be stopped
+    // before the camera is unbound.
+    val lastReady = remember { arrayOfNulls<LivePhase.Ready>(1) }
+    (phase as? LivePhase.Ready)?.let { lastReady[0] = it }
+    val cameraReady = (phase as? LivePhase.Ready) ?: lastReady[0]?.takeIf { phase is LivePhase.Finishing }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        if (cameraReady != null && cameraGranted) {
+            LiveContent(vm, cameraReady, onRequestFinish = { confirmFinish = true })
+        }
         when (val p = phase) {
             LivePhase.Loading -> Message(stringResource(R.string.live_loading), showProgress = true)
-            LivePhase.Finishing -> Message(stringResource(R.string.live_saving), showProgress = true)
+            LivePhase.Finishing -> Box(Modifier.fillMaxSize().background(Color(0xCC000000))) {
+                Message(stringResource(R.string.live_saving), showProgress = true)
+            }
             is LivePhase.Failed -> ErrorPanel(
                 message = p.message,
-                actionLabel = if (p.canAbandon) stringResource(R.string.live_close_session) else stringResource(R.string.bench_back),
-                onAction = { if (p.canAbandon) vm.finish() else onBackDispatcher?.onBackPressed() },
+                actions = buildList {
+                    if (p.canAbandon) add(stringResource(R.string.live_close_session) to { vm.finish() })
+                    add(stringResource(R.string.live_back) to { vm.leaveSaving() })
+                },
             )
             is LivePhase.SaveFailed -> ErrorPanel(
                 message = p.message,
-                actionLabel = stringResource(R.string.live_finish),
-                onAction = { vm.finish() },
+                actions = listOf(
+                    stringResource(R.string.live_retry) to { vm.finish() },
+                    stringResource(R.string.live_discard_exit) to { vm.discardAndExit() },
+                ),
             )
             is LivePhase.Ready ->
                 if (!cameraGranted) {
                     CameraPermissionPanel(
                         onGrant = { requestMissing() },
                         onSettings = { context.openAppSettings() },
-                        onClose = { vm.finish() },
+                        onClose = { confirmFinish = true },
                     )
-                } else {
-                    LiveContent(vm, p)
                 }
         }
+    }
+
+    if (confirmFinish && phase is LivePhase.Ready) {
+        AlertDialog(
+            onDismissRequest = { confirmFinish = false },
+            title = { Text(stringResource(R.string.live_finish_title)) },
+            text = {
+                val total = hud.sessionCounts?.total
+                Text(
+                    if (hud.hasProcessedFrames && total != null) {
+                        stringResource(R.string.live_finish_message, total)
+                    } else {
+                        stringResource(R.string.live_finish_no_frames)
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmFinish = false; vm.finish() }) {
+                    Text(stringResource(R.string.live_finish_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmFinish = false }) { Text(stringResource(R.string.live_cancel)) }
+            },
+        )
     }
 }
 
 @Composable
-private fun LiveContent(vm: LiveViewModel, ready: LivePhase.Ready) {
+private fun LiveContent(vm: LiveViewModel, ready: LivePhase.Ready, onRequestFinish: () -> Unit) {
     val hud by vm.hud.collectAsState()
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
-    var confirmFinish by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
     val pv = previewView
     LaunchedEffect(pv, lifecycleOwner) {
-        if (pv != null) vm.bindCamera(lifecycleOwner, pv, pv.display?.rotation ?: Surface.ROTATION_90)
+        if (pv != null) vm.bindCamera(lifecycleOwner, pv, displayRotation(context, pv))
     }
+    // While the session is being finished the view model keeps the camera bound until the recording is stopped.
     DisposableEffect(Unit) { onDispose { vm.unbindCamera() } }
 
     // The phone may be turned 180 degrees (sensor landscape): keep the use cases' rotation in step with the display.
@@ -183,15 +240,13 @@ private fun LiveContent(vm: LiveViewModel, ready: LivePhase.Ready) {
             override fun onDisplayAdded(displayId: Int) = Unit
             override fun onDisplayRemoved(displayId: Int) = Unit
             override fun onDisplayChanged(displayId: Int) {
-                val display = pv?.display ?: return
+                val display = pv?.display ?: displayManager.getDisplay(Display.DEFAULT_DISPLAY) ?: return
                 if (display.displayId == displayId) vm.camera.setRotation(display.rotation)
             }
         }
         displayManager.registerDisplayListener(listener, null)
         onDispose { displayManager.unregisterDisplayListener(listener) }
     }
-
-    BackHandler { confirmFinish = true }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -233,7 +288,7 @@ private fun LiveContent(vm: LiveViewModel, ready: LivePhase.Ready) {
                             )
                         }
                         OutlinedButton(
-                            onClick = { confirmFinish = true },
+                            onClick = onRequestFinish,
                             modifier = Modifier.heightIn(min = 56.dp),
                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xB3000000), contentColor = Color.White),
                         ) { Text(stringResource(R.string.live_finish), fontSize = 16.sp) }
@@ -262,31 +317,16 @@ private fun LiveContent(vm: LiveViewModel, ready: LivePhase.Ready) {
             }
         }
     }
+}
 
-    if (confirmFinish) {
-        val total = hud.sessionCounts?.total ?: 0
-        AlertDialog(
-            onDismissRequest = { confirmFinish = false },
-            title = { Text(stringResource(R.string.live_finish_title)) },
-            text = {
-                Text(
-                    if (hud.hasProcessedFrames) {
-                        stringResource(R.string.live_finish_message, total)
-                    } else {
-                        stringResource(R.string.live_finish_no_frames)
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { confirmFinish = false; vm.finish() }) {
-                    Text(stringResource(R.string.live_finish_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmFinish = false }) { Text(stringResource(R.string.live_cancel)) }
-            },
-        )
-    }
+/**
+ * Current display rotation for the camera use cases. The preview's own display can be null before it is attached;
+ * then the default display from the DisplayManager is used, and only if that is missing too, landscape.
+ */
+private fun displayRotation(context: Context, previewView: PreviewView): Int {
+    previewView.display?.let { return it.rotation }
+    val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    return dm.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: Surface.ROTATION_90
 }
 
 @Composable
@@ -304,9 +344,12 @@ private fun Message(text: String, showProgress: Boolean) {
     }
 }
 
-/** Full-screen explanation of a failure that makes counting impossible; never a black screen, never fake data. */
+/**
+ * Full-screen explanation of a failure that makes counting impossible; never a black screen, never fake data.
+ * Each action is a (label, handler) pair shown as a button.
+ */
 @Composable
-private fun ErrorPanel(message: String, actionLabel: String, onAction: () -> Unit) {
+private fun ErrorPanel(message: String, actions: List<Pair<String, () -> Unit>>) {
     Column(
         Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -314,7 +357,19 @@ private fun ErrorPanel(message: String, actionLabel: String, onAction: () -> Uni
     ) {
         Text(message, color = Color.White, fontSize = 18.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onAction, modifier = Modifier.heightIn(min = 56.dp)) { Text(actionLabel, fontSize = 16.sp) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            actions.forEachIndexed { i, (label, handler) ->
+                if (i == 0) {
+                    Button(onClick = handler, modifier = Modifier.heightIn(min = 56.dp)) { Text(label, fontSize = 16.sp) }
+                } else {
+                    OutlinedButton(
+                        onClick = handler,
+                        modifier = Modifier.heightIn(min = 56.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    ) { Text(label, fontSize = 16.sp) }
+                }
+            }
+        }
     }
 }
 

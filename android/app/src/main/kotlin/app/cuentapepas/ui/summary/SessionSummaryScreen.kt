@@ -1,7 +1,9 @@
 package app.cuentapepas.ui.summary
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +33,7 @@ import androidx.core.content.FileProvider
 import app.cuentapepas.R
 import app.cuentapepas.core.format.Fmt
 import app.cuentapepas.core.session.Geo
+import app.cuentapepas.core.session.GpsPoint
 import app.cuentapepas.core.session.PlantRecord
 import app.cuentapepas.core.session.RepeatCheck
 import app.cuentapepas.core.session.SessionMeta
@@ -51,12 +54,27 @@ private class SummaryData(
     val meta: SessionMeta,
     val plants: List<PlantRecord>,
     val stats: SessionStats?,
+    /** Spanish reason when stats.json exists but cannot be read (the rest of the summary is still shown). */
+    val statsError: String?,
     val manual: Map<Int, Int>,
     val classNames: List<String>,
     val others: Map<String, SessionMeta>,
     val repeat: RepeatCheck?,
-    val video: File?,
+    /** Spanish notes about sessions whose GPS file could not be read: those are unverifiable, not failures. */
+    val gpsNotes: List<String>,
+    /** `<id>.mp4` followed by `<id>_N.mp4` segments, in recording order. */
+    val videos: List<File>,
 )
+
+/** Video files of a session: `<id>.mp4` and `<id>_<n>.mp4`, the first segment first, then by segment number. */
+private fun videoSegments(dir: File?, sessionId: String): List<File> {
+    val files = dir?.listFiles() ?: return emptyList()
+    val pattern = Regex("^" + Regex.escape(sessionId) + "(?:_(\\d+))?\\.mp4$")
+    return files.filter { it.isFile }
+        .mapNotNull { f -> pattern.matchEntire(f.name)?.let { m -> (m.groupValues[1].toIntOrNull() ?: 0) to f } }
+        .sortedBy { it.first }
+        .map { it.second }
+}
 
 @Composable
 fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onBack: () -> Unit) {
@@ -67,18 +85,55 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
         val store = services.store
         val meta = store.session(sessionId)
         val plants = store.plants(sessionId).sortedBy { it.plantNumber }
-        val stats = store.stats(sessionId)
+        var stats: SessionStats? = null
+        var statsError: String? = null
+        try {
+            stats = store.stats(sessionId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A corrupt stats file must not hide the counts: show it as unreadable.
+            Log.e(TAG, "Cannot read stats of $sessionId", e)
+            statsError = context.getString(R.string.summary_stats_unreadable, context.describe(e))
+        }
         val manual = store.manualCounts(meta.lotId).filter { it.row == meta.row }
             .groupBy { it.plantNumber }.mapValues { (_, v) -> v.maxBy { it.enteredAtMs }.count }
         val others = store.sessions(meta.lotId).filter { it.id != sessionId && it.status == SessionStatus.COMPLETED }
-        val repeat = if (meta.status == SessionStatus.COMPLETED && others.isNotEmpty()) {
+        val gpsNotes = ArrayList<String>()
+        var repeat: RepeatCheck? = null
+        if (meta.status == SessionStatus.COMPLETED && others.isNotEmpty()) {
             val maxAcc = meta.settings["gps.maxAccuracyM"]?.toFloatOrNull() ?: 10f
-            Geo.possibleRepeats(store.gps(sessionId), others.associate { it.id to store.gps(it.id) }, maxAccuracyM = maxAcc)
-        } else null
-        val video = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
-            ?.let { File(it, "$sessionId.mp4") }?.takeIf { it.isFile }
+            val own: List<GpsPoint>? = try {
+                store.gps(sessionId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Cannot read GPS of $sessionId", e)
+                gpsNotes += context.getString(R.string.summary_gps_own_unreadable, context.describe(e))
+                null
+            }
+            if (own != null) {
+                val tracks = LinkedHashMap<String, List<GpsPoint>>()
+                for (o in others) {
+                    try {
+                        tracks[o.id] = store.gps(o.id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // That session cannot be verified; the others still can.
+                        Log.e(TAG, "Cannot read GPS of ${o.id}", e)
+                        gpsNotes += context.getString(R.string.summary_gps_unreadable, gpsLabel(context, o), context.describe(e))
+                    }
+                }
+                repeat = Geo.possibleRepeats(own, tracks, maxAccuracyM = maxAcc)
+            }
+        }
+        val videos = videoSegments(context.getExternalFilesDir(Environment.DIRECTORY_MOVIES), sessionId)
         val numClasses = plants.firstOrNull()?.counts?.perClass?.size ?: 0
-        SummaryData(meta, plants, stats, manual, services.classNames(numClasses), others.associateBy { it.id }, repeat, video)
+        SummaryData(
+            meta, plants, stats, statsError, manual, services.classNames(numClasses),
+            others.associateBy { it.id }, repeat, gpsNotes, videos,
+        )
     }
 
     var message by remember { mutableStateOf<String?>(null) }
@@ -124,11 +179,14 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
+                            Log.e(TAG, "Marking a pass as replaced failed", e)
                             error = context.describe(e)
                         }
                     }
                 },
             )
+
+            for (note in d.gpsNotes) Text(note, color = MaterialTheme.colorScheme.tertiary)
 
             PlantsTable(d, onSaved = { n ->
                 message = context.getString(R.string.summary_manual_saved, n)
@@ -137,7 +195,7 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
             }, onError = { error = it })
 
             Text(stringResource(R.string.summary_stats_title), style = MaterialTheme.typography.titleMedium)
-            StatsBlock(d.stats)
+            StatsBlock(d.stats, d.statsError)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !busy, onClick = {
@@ -150,6 +208,7 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
+                            Log.e(TAG, "Export failed", e)
                             error = context.describe(e)
                         } finally {
                             busy = false
@@ -158,14 +217,15 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
                 }) { Text(stringResource(if (busy) R.string.summary_exporting else R.string.summary_export)) }
                 if (d.meta.evaluationMode) {
                     OutlinedButton(onClick = {
-                        val v = d.video
-                        if (v == null) {
-                            error = context.getString(R.string.summary_video_missing)
+                        if (d.videos.isEmpty()) {
+                            error = context.getString(R.string.summary_videos_missing)
                         } else try {
-                            val uri = FileProvider.getUriForFile(context, "app.cuentapepas.fileprovider", v)
-                            val send = Intent(Intent.ACTION_SEND).apply {
+                            val uris = ArrayList<Uri>(
+                                d.videos.map { FileProvider.getUriForFile(context, "app.cuentapepas.fileprovider", it) },
+                            )
+                            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                                 type = "video/mp4"
-                                putExtra(Intent.EXTRA_STREAM, uri)
+                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(
@@ -174,9 +234,10 @@ fun SessionSummaryScreen(sessionId: String, onDone: (lotId: String) -> Unit, onB
                             )
                             error = null
                         } catch (e: Exception) {
+                            Log.e(TAG, "Sharing the video failed", e)
                             error = context.describe(e)
                         }
-                    }) { Text(stringResource(R.string.summary_share_video)) }
+                    }) { Text(stringResource(R.string.summary_share_video_n, d.videos.size)) }
                 }
                 OutlinedButton(onClick = { onDone(d.meta.lotId) }) { Text(stringResource(R.string.summary_done)) }
             }
@@ -224,13 +285,25 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
     val scope = rememberCoroutineScope()
     Text(stringResource(R.string.summary_plants_title), style = MaterialTheme.typography.titleMedium)
     if (d.plants.isEmpty()) {
-        Text(stringResource(R.string.summary_no_plants))
+        val noFrames = d.stats == null || d.stats.framesProcessed == 0
+        Text(
+            stringResource(
+                when {
+                    d.meta.status == SessionStatus.ABANDONED && noFrames -> R.string.summary_no_frames
+                    d.meta.status == SessionStatus.ABANDONED -> R.string.summary_no_counted_plants
+                    else -> R.string.summary_no_plants
+                },
+            ),
+        )
         return
     }
     val calibration = d.meta.isCalibrationSample
     val numClasses = d.plants.first().counts.perClass.size
+    val dash = stringResource(R.string.summary_plant_no_data)
     val entries = remember(d) { mutableStateMapOf<Int, String>().apply { d.manual.forEach { (k, v) -> put(k, v.toString()) } } }
     val cellW = 72.dp
+    // Plants observed in zero frames are "no data", never zeros: shown as a dash and left out of the totals.
+    val withData = d.plants.filter { it.hasData }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.summary_col_plant), Modifier.width(64.dp), style = MaterialTheme.typography.labelLarge)
@@ -242,8 +315,8 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
     for (p in d.plants) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text(p.plantNumber.toString(), Modifier.width(64.dp))
-            for (c in 0 until numClasses) Text(p.counts[c].toString(), Modifier.width(cellW))
-            Text(p.counts.total.toString(), Modifier.width(cellW))
+            for (c in 0 until numClasses) Text(if (p.hasData) p.counts[c].toString() else dash, Modifier.width(cellW))
+            Text(if (p.hasData) p.counts.total.toString() else dash, Modifier.width(cellW))
             if (calibration) {
                 OutlinedTextField(
                     value = entries[p.plantNumber].orEmpty(),
@@ -259,18 +332,28 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.summary_total_row), Modifier.width(64.dp), style = MaterialTheme.typography.labelLarge)
         for (c in 0 until numClasses) {
-            Text(d.plants.sumOf { it.counts[c] }.toString(), Modifier.width(cellW), style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (withData.isEmpty()) dash else withData.sumOf { it.counts[c] }.toString(),
+                Modifier.width(cellW), style = MaterialTheme.typography.labelLarge,
+            )
         }
-        Text(d.plants.sumOf { it.counts.total }.toString(), Modifier.width(cellW), style = MaterialTheme.typography.labelLarge)
+        Text(
+            if (withData.isEmpty()) dash else withData.sumOf { it.counts.total }.toString(),
+            Modifier.width(cellW), style = MaterialTheme.typography.labelLarge,
+        )
     }
     if (calibration) {
         Text(stringResource(R.string.summary_manual_hint), style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = {
-            // Validate everything first; blank entries are left as they are (a saved count cannot be removed).
+            // Validate everything first. A blank entry over a saved count is a request to clear it.
             val changes = ArrayList<Pair<Int, Int>>()
+            val clears = ArrayList<Int>()
             for (p in d.plants) {
                 val raw = entries[p.plantNumber]?.trim().orEmpty()
-                if (raw.isEmpty()) continue
+                if (raw.isEmpty()) {
+                    if (d.manual[p.plantNumber] != null) clears += p.plantNumber
+                    continue
+                }
                 val v = raw.toIntOrNull()?.takeIf { it >= 0 }
                 if (v == null) {
                     onError(context.getString(R.string.summary_manual_invalid, p.plantNumber))
@@ -281,10 +364,20 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
             scope.launch {
                 try {
                     for ((plant, count) in changes) services.store.setManualCount(d.meta.lotId, d.meta.row, plant, count)
-                    onSaved(changes.size)
+                    if (changes.isNotEmpty() || clears.isEmpty()) onSaved(changes.size)
+                    // TODO(store agent): the store has no delete for manual counts (SessionStore/FileSessionStore only
+                    //  append via setManualCount). Add deleteManualCount(lotId, row, plantNumber) and call it for `clears`.
+                    //  Until then clearing is refused openly instead of pretending the count was removed.
+                    if (clears.isNotEmpty()) {
+                        onError(
+                            context.getString(R.string.summary_manual_clear_unsupported) +
+                                " (" + clears.joinToString { "P$it" } + ")",
+                        )
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    Log.e(TAG, "Saving manual counts failed", e)
                     onError(context.describe(e))
                 }
             }
@@ -293,17 +386,21 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
 }
 
 @Composable
-private fun StatsBlock(s: SessionStats?) {
+private fun StatsBlock(s: SessionStats?, statsError: String?) {
     if (s == null) {
-        Text(stringResource(R.string.summary_stats_missing))
+        if (statsError != null) ErrorText(statsError) else Text(stringResource(R.string.summary_stats_missing))
         return
     }
     val context = LocalContext.current
     Text(stringResource(R.string.stat_duration, Fmt.duration(s.durationS)))
     Text(stringResource(R.string.stat_frames, s.framesProcessed))
+    Text(stringResource(R.string.stat_frames_errored, Fmt.intOrNoData(s.framesErrored)))
+    Text(stringResource(R.string.stat_frames_throttled, Fmt.intOrNoData(s.framesDroppedByThrottle)))
+    Text(stringResource(R.string.stat_perf_dropped, Fmt.intOrNoData(s.droppedPerfSamples)))
     Text(stringResource(R.string.stat_fps, Fmt.orNoData(s.fpsMedian), Fmt.orNoData(s.fpsP10)))
     Text(stringResource(R.string.stat_inference, Fmt.orNoData(s.inferenceMsMedian), Fmt.orNoData(s.inferenceMsP90)))
-    Text(stringResource(R.string.stat_delegate, s.delegate))
+    // "none" is stored when the detector never became ready: that is "sin dato", not a delegate name.
+    Text(stringResource(R.string.stat_delegate, if (s.delegate == "none") Fmt.NO_DATA else s.delegate))
     val thermal = when (s.maxThermalStatus) {
         0 -> R.string.thermal_none
         1 -> R.string.thermal_light
@@ -326,4 +423,9 @@ private fun StatsBlock(s: SessionStats?) {
         }
     }
     Text(stringResource(R.string.stat_gps, Fmt.orNoData(s.gpsAccuracyMedianM), Fmt.orNoData(s.gpsAccuracyP90M)))
+    s.evalLogError?.let { ErrorText(stringResource(R.string.stat_eval_log_error, it)) }
+    s.gpsSaveError?.let { ErrorText(stringResource(R.string.stat_gps_save_error, it)) }
+    s.videoIssue?.let { ErrorText(stringResource(R.string.stat_video_issue, it)) }
 }
+
+private const val TAG = "Cuentapepas"

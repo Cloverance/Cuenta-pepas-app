@@ -1,6 +1,7 @@
 package app.cuentapepas.camera
 
 import android.content.Context
+import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -35,7 +36,21 @@ data class BindOutcome(
     val videoBound: Boolean,
     /** True when video was requested but the 3-use-case binding failed and the camera runs without it. */
     val videoUnavailable: Boolean,
+    /** The original exception that made the 3-use-case binding fail (set exactly when [videoUnavailable]). */
+    val videoCause: Throwable? = null,
 )
+
+/** What [CameraController.stopRecording] found. */
+enum class StopResult {
+    /** There was no recording to stop. */
+    NOT_RECORDING,
+
+    /** The recording was stopped and its file finalised in time. */
+    FINALIZED,
+
+    /** The file was not finalised within the timeout: the video may be truncated or unplayable. */
+    TIMED_OUT,
+}
 
 /** What happened to a video recording, reported on the main thread. */
 sealed interface RecordingEvent {
@@ -143,25 +158,30 @@ class CameraController(context: Context) {
         }
 
         var videoUnavailable = false
+        var videoCause: Throwable? = null
         try {
             cameraProvider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, *build(withVideo).toTypedArray())
         } catch (e: Exception) {
             if (!withVideo) {
+                Log.e(TAG, "Camera binding failed", e)
                 clearUseCases()
                 throw e
             }
             // The device cannot run preview + analysis + video together: keep counting, tell the user.
+            Log.e(TAG, "Binding preview + analysis + video failed; continuing without video", e)
             cameraProvider.unbindAll()
             videoUnavailable = true
+            videoCause = e
             try {
                 cameraProvider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, *build(false).toTypedArray())
             } catch (e2: Exception) {
+                Log.e(TAG, "Camera binding without video failed too", e2)
                 clearUseCases()
                 e2.addSuppressed(e)
                 throw e2
             }
         }
-        return BindOutcome(videoBound = videoCapture != null, videoUnavailable = videoUnavailable)
+        return BindOutcome(videoBound = videoCapture != null, videoUnavailable = videoUnavailable, videoCause = videoCause)
     }
 
     /** Applies a new display rotation (e.g. the phone was turned 180 degrees) to every bound use case. */
@@ -173,7 +193,8 @@ class CameraController(context: Context) {
 
     /**
      * Starts recording to [file] (no audio). Returns false when no video use case is bound. [onEvent] runs on the
-     * main thread when the recording ends.
+     * main thread when the recording ends. May throw (e.g. IllegalStateException, SecurityException): callers must
+     * catch and report it; counting does not depend on the video.
      */
     fun startRecording(file: File, onEvent: (RecordingEvent) -> Unit): Boolean {
         val vc = videoCapture ?: return false
@@ -200,13 +221,18 @@ class CameraController(context: Context) {
         return true
     }
 
-    /** Stops the recording and waits (up to [timeoutMs]) for the file to be finalised. Main thread. */
-    suspend fun stopRecording(timeoutMs: Long = 5_000) {
-        val rec = recording ?: return
+    /**
+     * Stops the recording and waits (up to [timeoutMs]) for the file to be finalised. Main thread. A
+     * [StopResult.TIMED_OUT] result must be reported to the user: the video file may be incomplete.
+     */
+    suspend fun stopRecording(timeoutMs: Long = 5_000): StopResult {
+        val rec = recording ?: return StopResult.NOT_RECORDING
         val done = finalized
         rec.stop()
-        if (done != null) withTimeoutOrNull(timeoutMs) { done.await() }
+        val finishedInTime = done == null || withTimeoutOrNull(timeoutMs) { done.await() } != null
         recording = null
+        if (!finishedInTime) Log.e(TAG, "Video finalisation did not finish within $timeoutMs ms")
+        return if (finishedInTime) StopResult.FINALIZED else StopResult.TIMED_OUT
     }
 
     private fun releaseRecording() {
@@ -230,6 +256,7 @@ class CameraController(context: Context) {
     }
 
     private companion object {
+        const val TAG = "Cuentapepas"
         const val WIDTH = 1280
         const val HEIGHT = 720
     }

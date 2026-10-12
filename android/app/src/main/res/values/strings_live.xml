@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cadenas de la pantalla de conteo en vivo, el resumen del recorrido y el nuevo recorrido (revisión final). -->
+<resources>
+    <!-- Siguiente planta -->
+    <string name="live_next_first_plant">Ya está en la primera planta de la fila</string>
+    <string name="live_next_no_camera">La cámara aún no está activa: no se puede pasar a la siguiente planta</string>
+    <string name="live_next_no_frames">Aún no se procesó ningún cuadro de esta planta: espere un momento antes de pasar a la siguiente</string>
+
+    <!-- Errores de preparación y de procesamiento -->
+    <string name="live_processor_timeout">El procesamiento tardó demasiado en responder</string>
+    <string name="live_model_timeout">El modelo tardó demasiado en cargar</string>
+    <string name="live_setup_error">No se pudo preparar la sesión: %1$s</string>
+    <string name="live_session_invalid">La sesión no es válida: %1$s</string>
+    <string name="live_tick_error">Error al actualizar el estado del dispositivo: %1$s</string>
+    <string name="live_results_error">Error al procesar los resultados: %1$s</string>
+    <string name="live_autosave_error">Error en el guardado automático: %1$s</string>
+    <string name="live_release_error">No se pudo liberar el detector (los datos ya están guardados): %1$s</string>
+    <string name="live_discard_error">No se pudo descartar la sesión: %1$s</string>
+    <string name="live_model_output_invalid">El modelo devuelve valores no válidos: %1$s</string>
+    <string name="live_leave_save_error">No se pudo guardar el avance antes de salir: %1$s</string>
+
+    <!-- Botones -->
+    <string name="live_retry">Reintentar</string>
+    <string name="live_discard_exit">Descartar y salir</string>
+    <string name="live_back">Volver</string>
+
+    <!-- GPS -->
+    <string name="live_gps_finish_error">No se pudieron guardar %1$d punto(s) del GPS (%2$s). Reintente; si el problema sigue, descarte la sesión.</string>
+    <string name="live_gps_accuracy_points">GPS ±%1$d m · %2$d pts</string>
+    <string name="live_gps_stale">GPS: buscando señal · %1$d pts</string>
+    <string name="live_gps_searching_points">GPS: buscando señal · %1$d pts</string>
+    <string name="live_gps_unavailable_reason">GPS: no disponible (%1$s)</string>
+    <string name="live_gps_points_suffix">%1$s · %2$d pts</string>
+
+    <!-- Video de evaluación -->
+    <string name="live_video_unavailable_reason">El video de evaluación no está disponible en este equipo: %1$s</string>
+    <string name="live_video_start_failed">No se pudo iniciar la grabación del video (%1$s); se sigue contando sin video</string>
+    <string name="live_video_failed_label">Falló la grabación del video de evaluación: %1$s (código %2$d)</string>
+    <string name="live_video_finalize_timeout">El video de evaluación no terminó de guardarse a tiempo; puede estar incompleto</string>
+    <string name="video_err_unknown">error desconocido</string>
+    <string name="video_err_encoding">falló la codificación</string>
+    <string name="video_err_recorder">error del grabador</string>
+    <string name="video_err_no_valid_data">no se grabaron datos válidos</string>
+    <string name="video_err_invalid_output">opciones de salida no válidas</string>
+    <string name="video_err_duration_limit">se alcanzó el límite de duración</string>
+    <string name="video_err_storage">almacenamiento insuficiente</string>
+    <string name="video_err_source_inactive">la cámara se detuvo</string>
+    <string name="video_err_garbage_collected">la grabación se detuvo inesperadamente</string>
+
+    <!-- Nuevo recorrido -->
+    <string name="new_descending_note">Un recorrido descendente termina en la planta 1: al llegar a ella no se puede pasar a la siguiente.</string>
+
+    <!-- Resumen -->
+    <string name="summary_no_frames">No se procesó ningún cuadro; no hay conteos.</string>
+    <string name="summary_no_counted_plants">No se contó ninguna planta (todos los cuadros fueron en pausa o con error); no hay conteos.</string>
+    <string name="summary_plant_no_data">—</string>
+    <string name="summary_stats_unreadable">No se pudieron leer las estadísticas de este recorrido: %1$s</string>
+    <string name="summary_gps_unreadable">No se pudo leer el GPS del recorrido %1$s (%2$s): no se puede verificar si es repetido.</string>
+    <string name="summary_gps_own_unreadable">No se pudo leer el GPS de este recorrido (%1$s): no se puede verificar si repite otro recorrido.</string>
+    <string name="summary_manual_clear_unsupported">No se puede borrar aún</string>
+    <string name="summary_videos_missing">No se encontraron videos de este recorrido.</string>
+    <string name="summary_share_video_n">Compartir video (%1$d)</string>
+    <string name="stat_frames_errored">Cuadros con error: %1$s</string>
+    <string name="stat_frames_throttled">Cuadros omitidos por calor: %1$s</string>
+    <string name="stat_perf_dropped">Muestras de rendimiento descartadas: %1$s</string>
+    <string name="stat_eval_log_error">Registro de evaluación incompleto: %1$s</string>
+    <string name="stat_gps_save_error">Hubo fallos al guardar el GPS: %1$s</string>
+    <string name="stat_video_issue">Video de evaluación: %1$s</string>
+</resources>
