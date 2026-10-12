@@ -1,6 +1,8 @@
 package app.cuentapepas.ui.bench
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -52,6 +54,10 @@ fun BenchmarkScreen(onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<BenchProgress?>(null) }
     var outcome by remember { mutableStateOf<BenchOutcome?>(null) }
+    var shareError by remember { mutableStateOf<String?>(null) }
+    // Runner callbacks come from the benchmark thread; Compose state is only written on the main thread.
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    DisposableEffect(Unit) { onDispose { mainHandler.removeCallbacksAndMessages(null) } }
 
     DisposableEffect(running) {
         view.keepScreenOn = running
@@ -99,8 +105,8 @@ fun BenchmarkScreen(onBack: () -> Unit) {
                     runner.start(
                         durationSec = minutes * 60,
                         preferGpu = !cpuOnly,
-                        onProgress = { progress = it },
-                        onFinished = { outcome = it; running = false },
+                        onProgress = { mainHandler.post { progress = it } },
+                        onFinished = { mainHandler.post { outcome = it; running = false } },
                     )
                 }) { Text(stringResource(R.string.bench_start)) }
             } else {
@@ -117,7 +123,8 @@ fun BenchmarkScreen(onBack: () -> Unit) {
                     },
                 )
             }
-            if (p?.realImages == false) {
+            val doneReal = (outcome as? BenchOutcome.Done)?.result?.summary?.realImages
+            if ((doneReal ?: p?.realImages) == false) {
                 Text(stringResource(R.string.bench_no_real_images), color = MaterialTheme.colorScheme.error)
             }
             if (running || outcome != null) {
@@ -127,7 +134,17 @@ fun BenchmarkScreen(onBack: () -> Unit) {
 
             when (val o = outcome) {
                 is BenchOutcome.Failed -> Text(stringResource(R.string.bench_failed, o.message), color = MaterialTheme.colorScheme.error)
-                is BenchOutcome.Done -> Results(o.result.summary, o.file) { share(context, o.file) }
+                is BenchOutcome.Done -> {
+                    Results(o.result.summary, o.file) {
+                        shareError = try {
+                            share(context, o.file)
+                            null
+                        } catch (e: Exception) {
+                            context.getString(R.string.bench_share_failed, e.message ?: e::class.java.simpleName)
+                        }
+                    }
+                    shareError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
                 null -> {}
             }
         }
@@ -175,7 +192,7 @@ private fun Results(s: BenchSummaryJson, file: File, onShare: () -> Unit) {
         Text(stringResource(R.string.bench_res_trend, s.trendWindowS.toInt(), f(s.firstWindowMedianMs), f(s.lastWindowMedianMs)))
     }
     Text(stringResource(R.string.bench_res_battery, f(s.batteryPctPerHour)))
-    Text(stringResource(R.string.bench_res_thermal, if (s.maxThermal < 0) none else s.maxThermal.toString()))
+    Text(stringResource(R.string.bench_res_thermal, s.maxThermal?.toString() ?: none))
     Text(stringResource(R.string.bench_res_delegate, s.delegate))
     s.fallbackReason?.let { Text(stringResource(R.string.bench_res_fallback, it)) }
     Text(stringResource(R.string.bench_res_device, listOfNotNull(s.deviceModel, s.socModel).joinToString(" / ")))

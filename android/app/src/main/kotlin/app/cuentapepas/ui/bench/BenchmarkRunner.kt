@@ -22,6 +22,8 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -33,7 +35,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 data class BenchSample(
     val t: Double,
     @SerialName("inf_ms_median_last10s") val infMsMedianLast10s: Double?,
-    val thermal: Int,
+    /** `PowerManager.THERMAL_STATUS_*`, or null when the device reports none (never a fake "none"). */
+    val thermal: Int?,
     @SerialName("battery_pct") val batteryPct: Int?,
     @SerialName("battery_temp_c") val batteryTempC: Float?,
 )
@@ -50,7 +53,11 @@ data class BenchSummaryJson(
     @SerialName("first_window_median_ms") val firstWindowMedianMs: Double?,
     @SerialName("last_window_median_ms") val lastWindowMedianMs: Double?,
     @SerialName("battery_pct_per_hour") val batteryPctPerHour: Double?,
-    @SerialName("max_thermal") val maxThermal: Int,
+    @SerialName("max_thermal") val maxThermal: Int?,
+    @SerialName("images_used") val imagesUsed: Int,
+    @SerialName("images_failed") val imagesFailed: Int,
+    /** 10 s sample windows that produced no latency point (no frame completed in them). */
+    @SerialName("dropped_samples") val droppedSamples: Int,
     val delegate: String,
     @SerialName("fallback_reason") val fallbackReason: String?,
     @SerialName("model_id") val modelId: String,
@@ -106,11 +113,15 @@ class BenchmarkRunner(context: Context) {
 
     private fun run(durationSec: Int, preferGpu: Boolean, onProgress: (BenchProgress) -> Unit): BenchOutcome {
         val spec = ModelAssets.loadSpec(appContext)
-        val (buffers, real) = prepareInputs(spec)
+        val inputs = prepareInputs(spec)
+        val buffers = inputs.buffers
+        val real = inputs.real
         val post = YoloxPostprocessor(spec.numClasses)
-        val monitor = DeviceMonitor(appContext)
-        val detector = TfliteDetector(appContext, spec, preferGpu)
+        var monitor: DeviceMonitor? = null
+        var detector: TfliteDetector? = null
         try {
+            monitor = DeviceMonitor(appContext)
+            detector = TfliteDetector(appContext, spec, preferGpu)
             detector.initialize()
             val info = checkNotNull(detector.delegateInfo)
             val total = durationSec.toDouble()
@@ -119,7 +130,7 @@ class BenchmarkRunner(context: Context) {
             val samples = ArrayList<BenchSample>()
             val chart = ArrayList<Pair<Double, Double>>()
             val startPct = monitor.batteryPct()
-            var maxThermal = DeviceMonitor.NO_DATA
+            var dropped = 0
             val t0 = SystemClock.elapsedRealtimeNanos()
             var lastEnd = t0
             var nextSample = BenchmarkSummary.SAMPLE_INTERVAL_SEC
@@ -141,10 +152,8 @@ class BenchmarkRunner(context: Context) {
                 if (now >= nextSample) {
                     val med = BenchmarkSummary.medianInWindow(points.subList(lastSampleIdx, points.size), 0.0, Double.MAX_VALUE)
                     lastSampleIdx = points.size
-                    val th = monitor.thermalStatus
-                    if (th > maxThermal) maxThermal = th
-                    samples.add(BenchSample(now, med, th, monitor.batteryPct(), monitor.batteryTempC()))
-                    if (med != null) chart.add(now to med)
+                    samples.add(BenchSample(now, med, noDataToNull(monitor.thermalStatus), monitor.batteryPct(), monitor.batteryTempC()))
+                    if (med != null) chart.add(now to med) else dropped++
                     nextSample += BenchmarkSummary.SAMPLE_INTERVAL_SEC
                     onProgress(BenchProgress(now, total, chart.toList(), info.name, real))
                 }
@@ -164,7 +173,10 @@ class BenchmarkRunner(context: Context) {
                 firstWindowMedianMs = trend?.firstMedianMs,
                 lastWindowMedianMs = trend?.lastMedianMs,
                 batteryPctPerHour = BenchmarkSummary.batteryPctPerHour(startPct, endPct, endElapsed),
-                maxThermal = maxThermal,
+                maxThermal = noDataToNull(monitor.maxThermalSeen),
+                imagesUsed = inputs.used,
+                imagesFailed = inputs.failed,
+                droppedSamples = dropped,
                 delegate = info.name,
                 fallbackReason = info.fallback?.let { f -> f.kind.name + (f.detail?.let { ": $it" } ?: "") },
                 modelId = spec.modelId,
@@ -176,34 +188,53 @@ class BenchmarkRunner(context: Context) {
             val dir = File(appContext.filesDir, "bench").apply { mkdirs() }
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             val file = File(dir, "$stamp.json")
-            file.writeText(JSON.encodeToString(result))
+            // Atomic: a crash never leaves a half-written result that looks complete.
+            val tmpFile = File(dir, "$stamp.json.tmp")
+            tmpFile.writeText(JSON.encodeToString(result))
+            Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             return BenchOutcome.Done(result, file)
         } finally {
-            detector.close()
-            monitor.close()
+            detector?.close()
+            monitor?.close()
         }
     }
 
-    /** Decodes each bench image once and packs it (top-left letterbox, BGR); synthetic noise when there are none. */
-    private fun prepareInputs(spec: ModelSpec): Pair<List<ByteBuffer>, Boolean> {
+    private class Inputs(val buffers: List<ByteBuffer>, val real: Boolean, val used: Int, val failed: Int)
+
+    /**
+     * Decodes each bench image once and packs it (top-left letterbox, BGR); synthetic noise when none could be used.
+     * Undecodable images are counted in `failed`, never silently dropped.
+     */
+    private fun prepareInputs(spec: ModelSpec): Inputs {
         val names = appContext.assets.list("bench")
             ?.filter { it.endsWith(".jpg", true) || it.endsWith(".jpeg", true) }?.sorted().orEmpty()
         val out = ArrayList<ByteBuffer>()
+        var failed = 0
         for (n in names) {
-            val bmp = appContext.assets.open("bench/$n").use { BitmapFactory.decodeStream(it) } ?: continue
-            val lb = Letterbox.fit(bmp.width, bmp.height, spec.inputWidth, spec.inputHeight)
-            val scaled = Bitmap.createScaledBitmap(bmp, lb.resizedWidth, lb.resizedHeight, true)
-            val px = IntArray(lb.resizedWidth * lb.resizedHeight)
-            scaled.getPixels(px, 0, lb.resizedWidth, 0, 0, lb.resizedWidth, lb.resizedHeight)
-            out.add(pack(spec, px, lb.resizedWidth, lb.resizedHeight))
-            if (scaled !== bmp) scaled.recycle()
-            bmp.recycle()
+            try {
+                val bmp = appContext.assets.open("bench/$n").use { BitmapFactory.decodeStream(it) }
+                if (bmp == null) {
+                    failed++
+                    continue
+                }
+                val lb = Letterbox.fit(bmp.width, bmp.height, spec.inputWidth, spec.inputHeight)
+                val scaled = Bitmap.createScaledBitmap(bmp, lb.resizedWidth, lb.resizedHeight, true)
+                val px = IntArray(lb.resizedWidth * lb.resizedHeight)
+                scaled.getPixels(px, 0, lb.resizedWidth, 0, 0, lb.resizedWidth, lb.resizedHeight)
+                out.add(pack(spec, px, lb.resizedWidth, lb.resizedHeight))
+                if (scaled !== bmp) scaled.recycle()
+                bmp.recycle()
+            } catch (e: java.io.IOException) {
+                failed++
+            } catch (e: RuntimeException) {
+                failed++
+            }
         }
-        if (out.isNotEmpty()) return out to true
+        if (out.isNotEmpty()) return Inputs(out, true, out.size, failed)
         val lb = Letterbox.fit(1280, 720, spec.inputWidth, spec.inputHeight)
         val rnd = Random(42)
         val px = IntArray(lb.resizedWidth * lb.resizedHeight) { rnd.nextInt() or (0xFF shl 24) }
-        return listOf(pack(spec, px, lb.resizedWidth, lb.resizedHeight)) to false
+        return Inputs(listOf(pack(spec, px, lb.resizedWidth, lb.resizedHeight)), false, 0, failed)
     }
 
     private fun pack(spec: ModelSpec, px: IntArray, w: Int, h: Int): ByteBuffer {
@@ -215,6 +246,8 @@ class BenchmarkRunner(context: Context) {
     }
 
     private companion object {
+        fun noDataToNull(v: Int): Int? = v.takeIf { it != DeviceMonitor.NO_DATA }
+
         val JSON = Json { prettyPrint = true; encodeDefaults = true }
     }
 }
