@@ -1,0 +1,13 @@
+{
+  "model_id": "cuentapepas-nano-v1",
+  "taxonomy_schema_version": 1,
+  "classes": ["green", "semi_ripe", "ripe", "overripe", "dry"],
+  "input": {"name": "images", "width": 640, "height": 384, "layout": "NHWC", "dtype": "float32",
+            "channel_order": "BGR", "range": [0, 255], "letterbox": "top_left", "pad_value": 114},
+  "output": {"shape": [1, 5040, 10], "layout": ["cx", "cy", "w", "h", "obj", "cls0", "cls1", "cls2", "cls3", "cls4"],
+             "coords": "input_pixels", "activations": "sigmoid_applied"},
+  "postprocess": {"score": "obj*max(cls)", "default_score_threshold": 0.30, "nms": "class_agnostic_greedy", "default_nms_iou": 0.45, "max_detections": 300},
+  "files": {"fp16": {"name": "cuentapepas_nano_fp16.tflite", "sha256": "..."}, "fp32": {"name": "cuentapepas_nano_fp32.tflite", "sha256": "..."}},
+  "training_run": "runs/<id>", "metrics": {"val_map50": 0.0, "val_map50_95": 0.0},
+  "license_attribution": "Trained on Croppie coffee Uganda (CC BY-SA 4.0) by Producers Direct & Alliance Bioversity-CIAT. YOLOX Apache-2.0."
+}

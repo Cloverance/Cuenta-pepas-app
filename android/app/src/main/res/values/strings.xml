@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cuentapepas</string>
+
+    <!-- Modelo -->
+    <string name="model_missing">Falta el modelo: %1$s. Genere los archivos con «cuentapepas export» y cópielos en app/src/main/assets/model/ (vea el README.txt de esa carpeta).</string>
+    <string name="model_invalid">El modelo no es válido: %1$s</string>
+    <string name="model_load_failed">No se pudo cargar el modelo: %1$s</string>
+
+    <!-- Delegado de inferencia -->
+    <string name="delegate_gpu">GPU</string>
+    <string name="delegate_cpu">CPU</string>
+    <string name="delegate_fallback_disabled">GPU desactivada por configuración</string>
+    <string name="delegate_fallback_not_supported">La GPU de este dispositivo no es compatible; se usa la CPU</string>
+    <string name="delegate_fallback_init_failed">Falló la GPU (%1$s); se usa la CPU</string>
+
+    <!-- Estado térmico (PowerManager.THERMAL_STATUS_*) -->
+    <string name="thermal_no_data">Sin dato</string>
+    <string name="thermal_none">Normal</string>
+    <string name="thermal_light">Calor leve</string>
+    <string name="thermal_moderate">Calor moderado</string>
+    <string name="thermal_severe">Calor alto</string>
+    <string name="thermal_critical">Calor crítico</string>
+    <string name="thermal_emergency">Emergencia térmica</string>
+    <string name="thermal_shutdown">Apagado térmico</string>
+    <string name="throttled_notice">Dispositivo caliente: se procesa un cuadro de cada dos</string>
+
+    <!-- Errores del canal de procesamiento -->
+    <string name="frame_errors">Errores de procesamiento: %1$d. Último: %2$s</string>
+    <string name="logging_error">Falla el registro de evaluación: %1$s</string>
+
+    <!-- Exportación y almacenamiento -->
+    <string name="export_share_title">Compartir sesión</string>
+    <string name="data_corrupt">Datos corruptos en %1$s. No se modificaron; expórtelos o bórrelos manualmente.</string>
+    <string name="sessions_recovered">%1$d sesión(es) quedaron interrumpidas y se marcaron como abandonadas.</string>
+    <!-- Benchmark en el dispositivo -->
+    <string name="bench_title">Benchmark sostenido</string>
+    <string name="bench_back">Volver</string>
+    <string name="bench_duration">Duración</string>
+    <string name="bench_minutes">%1$d min</string>
+    <string name="bench_delegate">Delegado</string>
+    <string name="bench_delegate_auto">Auto (GPU si es posible)</string>
+    <string name="bench_delegate_cpu">CPU</string>
+    <string name="bench_start">Iniciar</string>
+    <string name="bench_stop">Detener</string>
+    <string name="bench_share">Compartir resultados</string>
+    <string name="bench_no_real_images">Sin imágenes reales: se usa un cuadro sintético de ruido. Las latencias sirven, pero no hay detecciones reales.</string>
+    <string name="bench_running">Midiendo… %1$d s de %2$d s · delegado %3$s</string>
+    <string name="bench_preparing">Preparando el modelo y las imágenes…</string>
+    <string name="bench_chart_title">Latencia de inferencia (mediana cada 10 s, ms) contra tiempo</string>
+    <string name="bench_chart_empty">Aún no hay muestras (la primera llega a los 10 s).</string>
+    <string name="bench_failed">El benchmark falló: %1$s</string>
+    <string name="bench_stopped_partial">Detenido antes de tiempo: resultados parciales.</string>
+    <string name="bench_results">Resultados</string>
+    <string name="bench_res_latency">Latencia: mediana %1$s ms, p90 %2$s ms</string>
+    <string name="bench_res_fps">Cuadros por segundo (mediana): %1$s</string>
+    <string name="bench_res_trend">Primeros %1$d s: %2$s ms · últimos %1$d s: %3$s ms</string>
+    <string name="bench_res_battery">Batería: %1$s %% por hora</string>
+    <string name="bench_res_thermal">Estado térmico máximo: %1$s</string>
+    <string name="bench_res_delegate">Delegado usado: %1$s</string>
+    <string name="bench_res_fallback">Motivo de CPU: %1$s</string>
+    <string name="bench_res_device">Dispositivo: %1$s</string>
+    <string name="bench_res_model">Modelo: %1$s</string>
+    <string name="bench_res_file">Guardado en %1$s</string>
+    <string name="bench_no_data">sin dato</string>
+    <string name="bench_share_chooser">Compartir benchmark</string>
+    <string name="bench_share_failed">No se pudo compartir el resultado: %1$s</string>
+
+    <!-- Comunes -->
+    <string name="common_back">Volver</string>
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_accept">Aceptar</string>
+    <string name="common_save">Guardar</string>
+    <string name="common_loading">Cargando…</string>
+    <string name="common_retry">Reintentar</string>
+    <string name="common_no_data">sin dato</string>
+    <string name="error_generic">Ocurrió un error: %1$s</string>
+    <string name="error_integrity">Los datos guardados son inconsistentes: %1$s</string>
+    <string name="error_lot_missing">No se encontró el lote.</string>
+
+    <!-- Inicio y lotes -->
+    <string name="home_title">Lotes</string>
+    <string name="home_new_lot">Nuevo lote</string>
+    <string name="home_empty">Todavía no hay lotes. Cree uno para empezar a recorrer surcos.</string>
+    <string name="home_bench">Benchmark</string>
+    <string name="home_settings">Ajustes</string>
+    <string name="home_about">Acerca de</string>
+    <string name="home_lot_sessions">%1$d recorrido(s)</string>
+    <string name="home_lot_error">Datos del lote no disponibles: %1$s</string>
+    <string name="home_notice_title">Aviso al iniciar</string>
+    <string name="home_notice_recovered">%1$d recorrido(s) quedaron interrumpidos y se marcaron como abandonados; sus datos no cuentan en los resultados.</string>
+    <string name="home_notice_corrupt">No se pudo leer %1$s. Los datos no se modificaron; expórtelos o bórrelos manualmente.</string>
+    <string name="lot_dialog_new">Nuevo lote</string>
+    <string name="lot_dialog_edit">Editar lote</string>
+    <string name="lot_name">Nombre</string>
+    <string name="lot_total_plants">Plantas totales (opcional)</string>
+    <string name="lot_cherries_per_kg">Pepas por kg (opcional)</string>
+    <string name="lot_cherries_per_kg_help">Medir en su finca; no se usa valor por defecto</string>
+    <string name="lot_error_name">Escriba un nombre.</string>
+    <string name="lot_error_total">Las plantas totales deben ser un entero mayor que 0.</string>
+    <string name="lot_error_kg">Las pepas por kg deben ser un número mayor que 0.</string>
+    <string name="lot_screen_edit">Editar lote</string>
+    <string name="lot_new_session">Nuevo recorrido</string>
+    <string name="lot_calibration">Calibración</string>
+    <string name="lot_estimate">Estimación</string>
+    <string name="lot_sessions_title">Recorridos</string>
+    <string name="lot_no_sessions">Este lote no tiene recorridos.</string>
+    <string name="lot_session_line">Surco %1$d, lado %2$s · %3$s · %4$s</string>
+    <string name="lot_total_plants_line">Plantas totales: %1$s</string>
+    <string name="lot_cherries_per_kg_line">Pepas por kg: %1$s</string>
+    <string name="session_status_ACTIVE">activo</string>
+    <string name="session_status_COMPLETED">completo</string>
+    <string name="session_status_REPLACED">reemplazado</string>
+    <string name="session_status_ABANDONED">abandonado</string>
+
+    <!-- Nuevo recorrido -->
+    <string name="new_title">Nuevo recorrido</string>
+    <string name="new_row">Surco (número)</string>
+    <string name="new_side">Lado</string>
+    <string name="new_first_plant">Primera planta</string>
+    <string name="new_direction">Dirección de las plantas</string>
+    <string name="new_direction_up">+1 (ascendente)</string>
+    <string name="new_direction_down">−1 (descendente)</string>
+    <string name="new_calibration">Plantas de muestra para calibración</string>
+    <string name="new_evaluation">Modo evaluación (graba video y registro por cuadro)</string>
+    <string name="new_start">Comenzar</string>
+    <string name="new_error_row">El surco debe ser un entero mayor que 0.</string>
+    <string name="new_error_plant">La primera planta debe ser un entero mayor que 0.</string>
+    <string name="new_conflict_title">Recorrido repetido</string>
+    <string name="new_conflict_message">Este surco y lado ya se recorrió el %1$s. ¿Reemplazar ese recorrido? (los conteos no se suman)</string>
+    <string name="new_conflict_replace">Reemplazar</string>
+
+    <!-- Resumen -->
+    <string name="summary_title">Resumen del recorrido</string>
+    <string name="summary_header">Surco %1$d, lado %2$s · %3$s</string>
+    <string name="summary_status">Estado: %1$s</string>
+    <string name="summary_plants_title">Plantas</string>
+    <string name="summary_no_plants">No se registraron plantas.</string>
+    <string name="summary_col_plant">Planta</string>
+    <string name="summary_col_total">Total</string>
+    <string name="summary_col_manual">Conteo manual</string>
+    <string name="summary_total_row">Total</string>
+    <string name="summary_manual_hint">Conteo manual de la planta completa (ambos lados). Se usa para calibrar el lote.</string>
+    <string name="summary_manual_save">Guardar conteos manuales</string>
+    <string name="summary_manual_saved">Conteos manuales guardados: %1$d</string>
+    <string name="summary_manual_invalid">Valor no válido en la planta %1$d (use un entero ≥ 0).</string>
+    <string name="summary_stats_title">Estadísticas</string>
+    <string name="summary_stats_missing">Este recorrido no tiene estadísticas guardadas.</string>
+    <string name="stat_duration">Duración: %1$s</string>
+    <string name="stat_frames">Cuadros procesados: %1$d</string>
+    <string name="stat_fps">FPS: mediana %1$s, p10 %2$s</string>
+    <string name="stat_inference">Inferencia (ms): mediana %1$s, p90 %2$s</string>
+    <string name="stat_delegate">Delegado: %1$s</string>
+    <string name="stat_thermal">Estado térmico máximo: %1$s</string>
+    <string name="stat_battery">Batería: %1$s por hora</string>
+    <string name="stat_warnings">Cuadros con aviso de calidad:</string>
+    <string name="stat_warning_line">%1$s: %2$s</string>
+    <string name="stat_warnings_none">Cuadros con aviso de calidad: sin dato</string>
+    <string name="stat_gps">Precisión GPS (m): mediana %1$s, p90 %2$s</string>
+    <string name="summary_export">Exportar (zip)</string>
+    <string name="summary_share_video">Compartir video</string>
+    <string name="summary_video_missing">No se encontró el video de este recorrido.</string>
+    <string name="summary_share_video_title">Compartir video</string>
+    <string name="summary_exporting">Exportando…</string>
+    <string name="summary_done">Listo</string>
+    <string name="gps_check_title">Posible surco repetido</string>
+    <string name="gps_repeat">El trazado GPS coincide ≥70 %% con el recorrido %1$s. ¿Es un surco repetido?</string>
+    <string name="gps_mark_replacement">Marcar este como reemplazo de %1$s</string>
+    <string name="gps_distinct">Son distintos</string>
+    <string name="gps_unverifiable">GPS insuficiente para verificar contra el recorrido %1$s</string>
+    <string name="gps_replaced_ok">El recorrido %1$s quedó marcado como reemplazado.</string>
+    <string name="gps_cannot_replace">No se puede marcar el recorrido %1$s como reemplazado: ya no está completo o este recorrido no está completo.</string>
+    <string name="gps_session_label">surco %1$d lado %2$s del %3$s</string>
+
+    <!-- Calibración -->
+    <string name="cal_title">Calibración del lote</string>
+    <string name="cal_none_big">Sin calibración</string>
+    <string name="cal_samples">Plantas de muestra: %1$d (mínimo %2$d)</string>
+    <string name="cal_k">Factor k (pepas totales por pepa visible): %1$s</string>
+    <string name="cal_plant_factor">Factor por planta: %1$s</string>
+    <string name="cal_loocv">Error medio de validación cruzada (LOOCV): %1$s</string>
+    <string name="cal_explain">El factor convierte pepas visibles desde un lado en pepas totales de la planta. Solo vale para el mismo protocolo (un lado, distancia ~50–80 cm).</string>
+    <string name="cal_skipped_title">Plantas con conteo manual que no se pudieron usar</string>
+    <string name="cal_skipped_line">Planta %1$s: %2$s</string>
+    <string name="cal_samples_title">Plantas usadas</string>
+    <string name="cal_sample_line">Planta %1$s: visibles %2$d, manual %3$d</string>
+    <string name="cal_how_to">Para calibrar, marque recorridos como muestra y escriba el conteo manual de cada planta en el resumen del recorrido.</string>
+
+    <!-- Estimación -->
+    <string name="est_title">Estimación del lote</string>
+    <string name="est_status_INSUFFICIENT_EVIDENCE">Evidencia insuficiente</string>
+    <string name="est_status_VISIBLE_ONLY">Solo pepas visibles</string>
+    <string name="est_status_CALIBRATED">Calibrado</string>
+    <string name="est_visible_per_plant">Pepas visibles por planta (no es cosecha): %1$s</string>
+    <string name="est_visible_per_plant_cal">Pepas visibles por planta: %1$s</string>
+    <string name="est_total_cherries">Pepas totales estimadas: %1$s</string>
+    <string name="est_total_kg">Peso estimado (kg): %1$s</string>
+    <string name="est_visited">Plantas recorridas: %1$d</string>
+    <string name="est_maturity_title">Proporción de madurez (pepas visibles)</string>
+    <string name="est_maturity_none">Proporción de madurez: sin dato</string>
+    <string name="est_walked_title">Surcos y lados recorridos</string>
+    <string name="est_walked_none">Todavía no hay recorridos completos.</string>
+    <string name="est_walked_line">Surco %1$d: %2$s</string>
+    <string name="est_walked_side">lado %1$s (%2$d plantas)</string>
+    <string name="est_notes_title">Notas del estimador</string>
+    <string name="est_issues_title">Avisos sobre los datos</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_note">Valores provisionales; se recalibran con datos de campo</string>
+    <string name="settings_reset">Restaurar valores</string>
+    <string name="settings_saved">Ajustes guardados.</string>
+    <string name="settings_reset_done">Se restauraron los valores.</string>
+    <string name="settings_invalid">Valor no válido en «%1$s»: %2$s</string>
+
+    <!-- Acerca de -->
+    <string name="about_title">Acerca de</string>
+    <string name="about_version">Versión de la app: %1$s</string>
+    <string name="about_model_id">Modelo: %1$s</string>
+    <string name="about_training_run">Corrida de entrenamiento: %1$s</string>
+    <string name="about_classes">Clases: %1$s</string>
+    <string name="about_metrics_title">Métricas del modelo (conjunto de validación, no de campo)</string>
+    <string name="about_metric_line">%1$s: %2$s</string>
+    <string name="about_limits_title">Limitaciones del modelo</string>
+    <string name="about_limits_text">El modelo se entrenó y se evaluó con imágenes fijas; las métricas no garantizan el mismo desempeño en su finca. Funciona mejor con buena luz, a ~50–80 cm de la rama y mirando un solo lado de la planta. Las pepas ocultas por hojas, ramas u otras pepas no se ven ni se cuentan, y el color de madurez puede confundirse con sombra o contraluz. Por eso el conteo es de pepas visibles; para estimar la cosecha se necesita la calibración del lote con conteos manuales.</string>
+    <string name="about_licenses_title">Licencias y atribuciones</string>
+    <string name="about_notice_missing">No se encontró el archivo NOTICE: %1$s</string>
+
+    <!-- Pantalla en vivo -->
+    <string name="live_loading">Preparando la cámara y el modelo…</string>
+    <string name="live_saving">Guardando la sesión…</string>
+    <string name="live_plant">Planta %1$d</string>
+    <string name="live_no_plant">Sin planta</string>
+    <string name="live_route">Recorrido</string>
+    <string name="live_visible">Pepas visibles</string>
+    <string name="live_total">Total</string>
+    <string name="live_next_plant">Siguiente planta</string>
+    <string name="live_pause">Pausa</string>
+    <string name="live_resume">Continuar</string>
+    <string name="live_finish">Terminar</string>
+    <string name="live_paused">EN PAUSA: no se cuenta</string>
+    <string name="live_evaluation_badge">Evaluación</string>
+    <string name="live_finish_title">¿Terminar la sesión?</string>
+    <string name="live_finish_message">Se guardará lo contado hasta ahora (%1$d pepas visibles).</string>
+    <string name="live_finish_no_frames">No se procesó ningún cuadro: la sesión se marcará como abandonada y no contará en los resultados.</string>
+    <string name="live_finish_confirm">Terminar</string>
+    <string name="live_cancel">Cancelar</string>
+    <string name="live_close_session">Cerrar sesión</string>
+    <string name="live_no_data">—</string>
+
+    <!-- Barra de estado -->
+    <string name="live_fps">%1$s FPS</string>
+    <string name="live_battery">Batería %1$d %%</string>
+    <string name="live_battery_unknown">Batería sin dato</string>
+    <string name="live_gps_accuracy">GPS ±%1$d m</string>
+    <string name="live_gps_no_permission">GPS: sin permiso</string>
+    <string name="live_gps_off">GPS: apagado</string>
+    <string name="live_gps_searching">GPS: buscando señal</string>
+    <string name="live_gps_unavailable">GPS: no disponible</string>
+    <string name="live_gps_save_error">No se pudo guardar el recorrido GPS: %1$s</string>
+
+    <!-- Avisos de calidad de captura -->
+    <string name="warn_too_fast">Va muy rápido</string>
+    <string name="warn_blurry">Imagen borrosa</string>
+    <string name="warn_too_dark">Poca luz</string>
+    <string name="warn_backlight">Contraluz</string>
+
+    <!-- Clases de madurez (identificadores del modelo) -->
+    <string name="class_green">Verde</string>
+    <string name="class_semi_ripe">Pintón</string>
+    <string name="class_ripe">Maduro</string>
+    <string name="class_overripe">Sobremaduro</string>
+    <string name="class_dry">Seco</string>
+
+    <!-- Permisos -->
+    <string name="live_camera_permission_title">Se necesita la cámara</string>
+    <string name="live_camera_permission_message">Cuentapepas cuenta las pepas con la cámara trasera. Sin permiso de cámara no se puede contar. Concédalo para continuar.</string>
+    <string name="live_camera_permission_grant">Conceder permiso</string>
+    <string name="live_open_settings">Abrir ajustes de la app</string>
+
+    <!-- Errores y avisos de la pantalla en vivo -->
+    <string name="live_session_error">No se pudo abrir la sesión: %1$s</string>
+    <string name="live_session_not_active">La sesión ya no está activa.</string>
+    <string name="live_camera_error">No se pudo abrir la cámara: %1$s</string>
+    <string name="live_save_error">No se pudo guardar la sesión: %1$s</string>
+    <string name="live_video_unavailable">El video de evaluación no está disponible en este equipo</string>
+    <string name="live_video_no_storage">No hay almacenamiento externo para guardar el video de evaluación</string>
+    <string name="live_video_failed">Falló la grabación del video de evaluación (código %1$d)</string>
+    <string name="live_video_interrupted">El video de evaluación se interrumpió al salir de la app</string>
+    <string name="live_eval_log_error">No se pudo abrir el registro de evaluación: %1$s</string>
+    <string name="live_background_paused">La sesión quedó en pausa al salir de la app. Pulse Continuar para seguir.</string>
+
+    <!-- fix-ui: error mapping, corrupt data, notices (append-only block) -->
+    <string name="error_technical_detail">Detalle técnico</string>
+    <string name="error_unexpected">Ocurrió un error inesperado. Si se repite, anote qué estaba haciendo y avise.</string>
+    <string name="error_invalid_argument">Hay datos que no son válidos. Revise lo que escribió e inténtelo de nuevo.</string>
+    <string name="error_invalid_state">La operación no se puede hacer en el estado actual.</string>
+    <string name="error_io">No se pudo leer o escribir un archivo del teléfono. Revise el espacio disponible e inténtelo de nuevo.</string>
+    <string name="error_session_missing">No se encontró el recorrido.</string>
+    <string name="error_contract">El modelo instalado no cumple el contrato que espera la app.</string>
+    <string name="error_models_mismatch">Los recorridos usan otro modelo o taxonomía de clases; no se pueden combinar. Descarte o repita los recorridos de otro modelo.</string>
+    <plurals name="corrupt_banner">
+        <item quantity="one">%1$d recorrido ilegible no se incluyó</item>
+        <item quantity="other">%1$d recorridos ilegibles no se incluyeron</item>
+    </plurals>
+    <string name="corrupt_view">Ver / descartar</string>
+    <string name="corrupt_list_title">Recorridos ilegibles</string>
+    <string name="corrupt_list_help">Estos recorridos no se pudieron leer y no cuentan en los resultados. Descartar borra su carpeta y no se puede deshacer.</string>
+    <string name="corrupt_discard">Descartar</string>
+    <string name="corrupt_discard_title">¿Descartar este recorrido?</string>
+    <string name="corrupt_discard_text">Se borrará la carpeta del recorrido %1$s con todos sus datos. No se puede deshacer.</string>
+    <string name="corrupt_discard_refused">El recorrido %1$s ya se puede leer o no existe; no se borró nada.</string>
+    <string name="corrupt_close">Cerrar</string>
+    <string name="home_notice_dismiss">Entendido</string>
+    <string name="class_names_unavailable_notice">Modelo no disponible: nombres genéricos de clase.</string>
+    <string name="class_names_mismatch_notice">El modelo actual tiene otro número de clases que estos datos: nombres genéricos de clase.</string>
+    <string name="cal_issues_title">Avisos al resolver los recorridos</string>
+    <string name="about_model_file">Archivo del modelo en uso: %1$s (%2$s)</string>
+    <string name="about_model_file_sha">SHA-256 declarado: %1$s</string>
+    <string name="about_parity_title">Paridad de la exportación (según model.json)</string>
+    <string name="about_model_limits_title">Limitaciones del modelo (según model.json)</string>
+    <string name="model_file_missing_error">No se pudo determinar el archivo del modelo: %1$s</string>
+    <string name="model_sha_mismatch">El archivo del modelo %1$s no coincide con la huella (SHA-256) declarada en model.json; está dañado o no es el exportado.</string>
+    <string name="model_file_undeclared">El archivo del modelo %1$s no figura en model.json.</string>
+    <string name="model_sha_malformed">La huella (SHA-256) de %1$s en model.json no es válida.</string>
+    <string name="snackbar_close">Cerrar</string>
+</resources>
