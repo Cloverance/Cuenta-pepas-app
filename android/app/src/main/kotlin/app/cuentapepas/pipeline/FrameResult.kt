@@ -26,8 +26,8 @@ import app.cuentapepas.inference.DelegateFallback
  * @property cameraShift estimated camera motion since the previous processed frame, in source pixels.
  * @property rawDetections detections this frame after NMS, before tracking.
  * @property inferenceMs detector time of this frame.
- * @property meanInferenceMs mean detector time over the recent window.
- * @property fps processed frames per second over the recent window.
+ * @property medianInferenceMs median detector time over the session so far (NaN = no data).
+ * @property fps median processed frames per second over the session so far (NaN = no data).
  * @property delegate `"GPU"`, `"CPU"` or null while the detector is still initialising.
  * @property delegateFallback why the CPU is used when the GPU was preferred; null otherwise.
  * @property throttled true when the thermal state is SEVERE or worse and every other frame is skipped.
@@ -52,7 +52,7 @@ data class FrameResult(
     val cameraShift: Shift,
     val rawDetections: Int,
     val inferenceMs: Float,
-    val meanInferenceMs: Float,
+    val medianInferenceMs: Float,
     val fps: Float,
     val delegate: String?,
     val delegateFallback: DelegateFallback?,
@@ -70,7 +70,7 @@ data class FrameResult(
             tracks = emptyList(),
             currentPlantCounts = ClassCounts.zero(numClasses), sessionCounts = ClassCounts.zero(numClasses),
             warnings = emptySet(), quality = null, cameraShift = Shift.ZERO, rawDetections = 0,
-            inferenceMs = Float.NaN, meanInferenceMs = Float.NaN, fps = Float.NaN,
+            inferenceMs = Float.NaN, medianInferenceMs = Float.NaN, fps = Float.NaN,
             delegate = null, delegateFallback = null, throttled = false, thermalStatus = -1, paused = false,
             errorMessage = null, errorCount = 0, loggingError = null,
         )

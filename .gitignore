@@ -29,3 +29,6 @@ android/.idea/
 
 # Git worktrees
 .worktrees/
+
+# Benchmark images (copied from data/local/bench; attribution stays tracked)
+android/app/src/main/assets/bench/*.jpg

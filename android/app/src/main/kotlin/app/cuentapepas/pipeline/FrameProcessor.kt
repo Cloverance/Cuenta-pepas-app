@@ -5,6 +5,7 @@ import androidx.camera.core.ImageProxy
 import app.cuentapepas.core.count.TrackCounter
 import app.cuentapepas.core.detect.Detection
 import app.cuentapepas.core.detect.YoloxPostprocessor
+import app.cuentapepas.core.perf.PerfStats
 import app.cuentapepas.core.quality.GlobalMotionEstimator
 import app.cuentapepas.core.quality.LumaImage
 import app.cuentapepas.core.quality.QualityAdvisor
@@ -68,7 +69,7 @@ class FrameProcessor(
     tracker: ByteTracker,
     private val advisor: QualityAdvisor,
     private val motion: GlobalMotionEstimator,
-    private val perf: FramePerf,
+    perf: PerfStats,
     logger: EvaluationLogger? = null,
     private val thermalStatus: () -> Int = { DeviceMonitor.NO_DATA },
     private val executorService: ExecutorService = Executors.newSingleThreadExecutor { r ->
@@ -103,6 +104,10 @@ class FrameProcessor(
     private var logger = logger
     private val postprocessor = YoloxPostprocessor(spec.numClasses)
     private var activePlant: Int? = null
+    private var perf = perf
+    private var lastFrameEndNs = 0L
+    private var liveMedianMs = Float.NaN
+    private var liveFps = Float.NaN
     private var frameIndex = 0L
     private var errorCount = 0
     private var lastError: String? = null
@@ -157,7 +162,10 @@ class FrameProcessor(
             prevLuma = null
             prevTsNs = 0
             advisor.reset()
-            perf.reset()
+            perf = PerfStats()
+            lastFrameEndNs = 0L
+            liveMedianMs = Float.NaN
+            liveFps = Float.NaN
             val st = statusFlow.value
             resultFlow.value = FrameResult.initial(spec.numClasses).copy(
                 delegate = (st as? ProcessorStatus.Ready)?.delegate?.name,
@@ -254,7 +262,14 @@ class FrameProcessor(
         val warnings: Set<QualityWarning> = advisor.update(sample)
 
         // 9. Perf.
-        perf.record(inferenceMs, t1)
+        perf.addLatencyMs(inferenceMs.toDouble())
+        if (lastFrameEndNs != 0L) perf.addFrameIntervalMs((t1 - lastFrameEndNs) / 1e6)
+        lastFrameEndNs = t1
+        // Quantiles sort the accumulated samples, so refresh the published values only every few frames.
+        if (seen % PERF_REFRESH_FRAMES == 1L || liveMedianMs.isNaN()) {
+            liveMedianMs = perf.inferenceMsMedian?.toFloat() ?: Float.NaN
+            liveFps = perf.fpsMedian?.toFloat() ?: Float.NaN
+        }
 
         if (stageError != null) {
             errorCount++
@@ -279,8 +294,8 @@ class FrameProcessor(
             cameraShift = shift,
             rawDetections = dets.size,
             inferenceMs = inferenceMs,
-            meanInferenceMs = perf.meanInferenceMs(),
-            fps = perf.fps(),
+            medianInferenceMs = liveMedianMs,
+            fps = liveFps,
             delegate = ready.delegate.name,
             delegateFallback = ready.delegate.fallback,
             throttled = throttled,
@@ -327,5 +342,6 @@ class FrameProcessor(
 
     private companion object {
         const val CLOSE_TIMEOUT_S = 10L
+        const val PERF_REFRESH_FRAMES = 10L
     }
 }

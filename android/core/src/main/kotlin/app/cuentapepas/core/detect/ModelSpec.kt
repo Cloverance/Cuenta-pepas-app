@@ -15,7 +15,8 @@ data class ModelSpec(
     val postprocess: Postprocess,
     val files: Files,
     @SerialName("training_run") val trainingRun: String? = null,
-    val metrics: Map<String, Double> = emptyMap(),
+    /** Training metrics; a null value (e.g. NaN written as null by the exporter) must not make the model unloadable. */
+    val metrics: Map<String, Double?> = emptyMap(),
     @SerialName("license_attribution") val licenseAttribution: String? = null,
 ) {
     @Serializable

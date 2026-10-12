@@ -58,6 +58,21 @@ class ModelSpecTest {
         assertEquals(5040, ModelSpec.parse(json).numAnchors)
     }
 
+    @Test fun nullMetricDoesNotBreakLoading() {
+        val json = exampleJson().replace("\"val_map50\": 0.0", "\"val_map50\": null")
+        assertTrue("test setup: replacement must apply", json.contains("\"val_map50\": null"))
+        val spec = ModelSpec.parse(json)
+        assertTrue(spec.metrics.containsKey("val_map50"))
+        assertEquals(null, spec.metrics["val_map50"])
+        assertEquals(0.0, spec.metrics["val_map50_95"]!!, 0.0)
+    }
+
+    @Test fun omittedMetricsDefaultToEmpty() {
+        val json = exampleJson().replace(", \"metrics\": {\"val_map50\": 0.0, \"val_map50_95\": 0.0}", "")
+        assertTrue("test setup: replacement must apply", !json.contains("metrics"))
+        assertTrue(ModelSpec.parse(json).metrics.isEmpty())
+    }
+
     private fun assertRejected(from: String, to: String, messagePart: String) {
         val json = exampleJson().replace(from, to)
         assertTrue("test setup: replacement must apply", json != exampleJson())
