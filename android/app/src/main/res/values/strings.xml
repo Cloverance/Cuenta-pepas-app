@@ -225,4 +225,68 @@
     <string name="about_limits_text">El modelo se entrenó y se evaluó con imágenes fijas; las métricas no garantizan el mismo desempeño en su finca. Funciona mejor con buena luz, a ~50–80 cm de la rama y mirando un solo lado de la planta. Las pepas ocultas por hojas, ramas u otras pepas no se ven ni se cuentan, y el color de madurez puede confundirse con sombra o contraluz. Por eso el conteo es de pepas visibles; para estimar la cosecha se necesita la calibración del lote con conteos manuales.</string>
     <string name="about_licenses_title">Licencias y atribuciones</string>
     <string name="about_notice_missing">No se encontró el archivo NOTICE: %1$s</string>
+
+    <!-- Pantalla en vivo -->
+    <string name="live_loading">Preparando la cámara y el modelo…</string>
+    <string name="live_saving">Guardando la sesión…</string>
+    <string name="live_plant">Planta %1$d</string>
+    <string name="live_no_plant">Sin planta</string>
+    <string name="live_route">Recorrido</string>
+    <string name="live_visible">Pepas visibles</string>
+    <string name="live_total">Total</string>
+    <string name="live_next_plant">Siguiente planta</string>
+    <string name="live_pause">Pausa</string>
+    <string name="live_resume">Continuar</string>
+    <string name="live_finish">Terminar</string>
+    <string name="live_paused">EN PAUSA: no se cuenta</string>
+    <string name="live_evaluation_badge">Evaluación</string>
+    <string name="live_finish_title">¿Terminar la sesión?</string>
+    <string name="live_finish_message">Se guardará lo contado hasta ahora (%1$d pepas visibles).</string>
+    <string name="live_finish_no_frames">No se procesó ningún cuadro: la sesión se marcará como abandonada y no contará en los resultados.</string>
+    <string name="live_finish_confirm">Terminar</string>
+    <string name="live_cancel">Cancelar</string>
+    <string name="live_close_session">Cerrar sesión</string>
+    <string name="live_no_data">—</string>
+
+    <!-- Barra de estado -->
+    <string name="live_fps">%1$s FPS</string>
+    <string name="live_battery">Batería %1$d %%</string>
+    <string name="live_battery_unknown">Batería sin dato</string>
+    <string name="live_gps_accuracy">GPS ±%1$d m</string>
+    <string name="live_gps_no_permission">GPS: sin permiso</string>
+    <string name="live_gps_off">GPS: apagado</string>
+    <string name="live_gps_searching">GPS: buscando señal</string>
+    <string name="live_gps_unavailable">GPS: no disponible</string>
+    <string name="live_gps_save_error">No se pudo guardar el recorrido GPS: %1$s</string>
+
+    <!-- Avisos de calidad de captura -->
+    <string name="warn_too_fast">Va muy rápido</string>
+    <string name="warn_blurry">Imagen borrosa</string>
+    <string name="warn_too_dark">Poca luz</string>
+    <string name="warn_backlight">Contraluz</string>
+
+    <!-- Clases de madurez (identificadores del modelo) -->
+    <string name="class_green">Verde</string>
+    <string name="class_semi_ripe">Pintón</string>
+    <string name="class_ripe">Maduro</string>
+    <string name="class_overripe">Sobremaduro</string>
+    <string name="class_dry">Seco</string>
+
+    <!-- Permisos -->
+    <string name="live_camera_permission_title">Se necesita la cámara</string>
+    <string name="live_camera_permission_message">Cuentapepas cuenta las pepas con la cámara trasera. Sin permiso de cámara no se puede contar. Concédalo para continuar.</string>
+    <string name="live_camera_permission_grant">Conceder permiso</string>
+    <string name="live_open_settings">Abrir ajustes de la app</string>
+
+    <!-- Errores y avisos de la pantalla en vivo -->
+    <string name="live_session_error">No se pudo abrir la sesión: %1$s</string>
+    <string name="live_session_not_active">La sesión ya no está activa.</string>
+    <string name="live_camera_error">No se pudo abrir la cámara: %1$s</string>
+    <string name="live_save_error">No se pudo guardar la sesión: %1$s</string>
+    <string name="live_video_unavailable">El video de evaluación no está disponible en este equipo</string>
+    <string name="live_video_no_storage">No hay almacenamiento externo para guardar el video de evaluación</string>
+    <string name="live_video_failed">Falló la grabación del video de evaluación (código %1$d)</string>
+    <string name="live_video_interrupted">El video de evaluación se interrumpió al salir de la app</string>
+    <string name="live_eval_log_error">No se pudo abrir el registro de evaluación: %1$s</string>
+    <string name="live_background_paused">La sesión quedó en pausa al salir de la app. Pulse Continuar para seguir.</string>
 </resources>

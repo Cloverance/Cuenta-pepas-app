@@ -26,8 +26,8 @@ import app.cuentapepas.inference.DelegateFallback
  * @property cameraShift estimated camera motion since the previous processed frame, in source pixels.
  * @property rawDetections detections this frame after NMS, before tracking.
  * @property inferenceMs detector time of this frame.
- * @property medianInferenceMs median detector time over the session so far (NaN = no data).
- * @property fps median processed frames per second over the session so far (NaN = no data).
+ * @property medianInferenceMs median detector time over the last ~60 processed frames (NaN = no data).
+ * @property fps processed frames per second over the last ~60 frames, from the median frame interval (NaN = no data).
  * @property delegate `"GPU"`, `"CPU"` or null while the detector is still initialising.
  * @property delegateFallback why the CPU is used when the GPU was preferred; null otherwise.
  * @property throttled true when the thermal state is SEVERE or worse and every other frame is skipped.
