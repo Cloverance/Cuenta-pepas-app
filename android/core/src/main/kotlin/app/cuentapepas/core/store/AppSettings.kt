@@ -15,11 +15,11 @@ data class AppSettings(
     val gpsMaxAccuracyM: Float = 10f,
 ) {
     init {
-        require(minHits >= 1) { "minHits must be >= 1: $minHits" }
-        require(minMeanScore.isFinite() && minMeanScore in 0f..1f) { "minMeanScore must be in 0..1: $minMeanScore" }
-        require(scoreThreshold.isFinite() && scoreThreshold in 0f..1f) { "scoreThreshold must be in 0..1: $scoreThreshold" }
-        require(nmsIou.isFinite() && nmsIou in 0f..1f) { "nmsIou must be in 0..1: $nmsIou" }
-        require(gpsMaxAccuracyM.isFinite() && gpsMaxAccuracyM > 0f) { "gpsMaxAccuracyM must be > 0: $gpsMaxAccuracyM" }
+        require(minHits >= 1) { "Los cuadros mínimos para contar deben ser al menos 1 (valor: $minHits)" }
+        require(minMeanScore.isFinite() && minMeanScore in 0f..1f) { "La confianza media mínima debe estar entre 0 y 1 (valor: $minMeanScore)" }
+        require(scoreThreshold.isFinite() && scoreThreshold in 0f..1f) { "El umbral de confianza debe estar entre 0 y 1 (valor: $scoreThreshold)" }
+        require(nmsIou.isFinite() && nmsIou in 0f..1f) { "El umbral IoU debe estar entre 0 y 1 (valor: $nmsIou)" }
+        require(gpsMaxAccuracyM.isFinite() && gpsMaxAccuracyM > 0f) { "La precisión GPS máxima debe ser mayor que 0 (valor: $gpsMaxAccuracyM)" }
     }
 
     /**

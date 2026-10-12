@@ -9,6 +9,9 @@ import java.io.IOException
 class CorruptDataException(val path: String, detail: String, cause: Throwable? = null) :
     IOException("Datos corruptos en $path: $detail", cause)
 
+/** A session directory that cannot be read: [id] is the directory name (valid for `discardCorruptSession`). */
+data class CorruptSession(val id: String, val error: CorruptDataException)
+
 class SessionNotFoundException(val sessionId: String) : NoSuchElementException("Sesión no encontrada: $sessionId")
 
 class LotNotFoundException(val lotId: String) : NoSuchElementException("Lote no encontrado: $lotId")
