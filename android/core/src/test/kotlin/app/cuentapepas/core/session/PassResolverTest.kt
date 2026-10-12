@@ -17,8 +17,8 @@ class PassResolverTest {
         start: Long = 0,
     ) = SessionMeta(id, "L", row, side, 1, 1, calib, false, start, null, status, "1", "m", emptyMap(), seq)
 
-    private fun plant(sid: String, n: Int, total: Int, ended: Long? = null) =
-        PlantRecord(sid, n, ClassCounts(intArrayOf(total, 0, 0, 0, 0)), 0, ended)
+    private fun plant(sid: String, n: Int, total: Int, ended: Long? = null, frames: Int? = null) =
+        PlantRecord(sid, n, ClassCounts(intArrayOf(total, 0, 0, 0, 0)), 0, ended, framesObserved = frames)
 
     private fun manual(n: Int, count: Int, at: Long = 0, row: Int = 1) = ManualCount("L", row, n, count, at)
 
@@ -162,5 +162,42 @@ class PassResolverTest {
     @Test fun calibrationDoesNotRequireCalibrationFlag() {
         val set = PassResolver.calibrationSamples(listOf(meta("a", calib = false)), listOf(plant("a", 1, 10)), listOf(manual(1, 30)))
         assertEquals(1, set.samples.size)
+    }
+
+    @Test fun plantsObservedInZeroFramesAreExcludedAndReported() {
+        val s = listOf(meta("a"))
+        val r = PassResolver.effectivePlants(s, listOf(plant("a", 1, 0, frames = 0), plant("a", 2, 5, frames = 12)))
+        assertEquals(setOf(PlantKey("L", 1, 2)), r.plants.keys)
+        assertEquals(setOf(key), r.noData)
+        assertEquals(listOf(IssueKind.NO_FRAMES_OBSERVED), r.issues.map { it.kind })
+    }
+
+    @Test fun legacyRecordsWithoutCoverageAreStillUsed() {
+        val r = PassResolver.effectivePlants(listOf(meta("a")), listOf(plant("a", 1, 3, frames = null)))
+        assertEquals(setOf(key), r.plants.keys)
+        assertTrue(r.noData.isEmpty())
+        assertTrue(r.issues.isEmpty())
+    }
+
+    @Test fun oneSideWithoutDataLeavesTheOtherSide() {
+        val s = listOf(meta("a", Side.A), meta("b", Side.B))
+        val r = PassResolver.effectivePlants(s, listOf(plant("a", 1, 10, frames = 8), plant("b", 1, 0, frames = 0)))
+        assertEquals(setOf(Side.A), r.plants.getValue(key).keys)
+        assertTrue(r.noData.isEmpty()) // the plant still has data from side A
+    }
+
+    @Test fun calibrationExcludesNoDataPlantsWithSpecificReason() {
+        val s = listOf(meta("a", Side.A), meta("b", Side.B))
+        val set = PassResolver.calibrationSamples(
+            s,
+            listOf(
+                plant("a", 1, 0, frames = 0), plant("b", 1, 0, frames = 0), // plant 1: no data on both sides
+                plant("a", 2, 10, frames = 5), plant("b", 2, 0, frames = 0), // plant 2: only side A counts, no fake 0 averaged in
+            ),
+            listOf(manual(1, 30), manual(2, 20)),
+        )
+        assertEquals(listOf("L/1/2"), set.samples.map { it.plantId })
+        assertEquals(10, set.samples[0].visible)
+        assertEquals(listOf(SkippedPlant("L/1/1", "Sin cuadros observados en esta planta (sin dato)")), set.skipped)
     }
 }

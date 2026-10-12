@@ -4,17 +4,36 @@ import app.cuentapepas.core.calibration.CalibrationResult
 import app.cuentapepas.core.calibration.CalibrationSample
 import app.cuentapepas.core.calibration.RatioCalibrator
 import app.cuentapepas.core.count.ClassCounts
+import app.cuentapepas.core.session.PlantRecord
 import app.cuentapepas.core.stats.Bootstrap
 import app.cuentapepas.core.stats.Estimate
 import app.cuentapepas.core.stats.Interval
 import kotlinx.serialization.Serializable
 import java.util.SplittableRandom
 
-/** Visible cherries of one plant, one [ClassCounts] per side walked (1 or 2). */
+/**
+ * Visible cherries of one plant, one [ClassCounts] per side walked (1 or 2).
+ * [framesObserved] is the number of frames observed for the plant (all sides together); 0 means the plant has no data
+ * and [LotEstimator] excludes it; null means unknown (legacy data) and the plant is used.
+ */
 @Serializable
-data class PlantVisible(val plantId: String, val sides: List<ClassCounts>) {
+data class PlantVisible(val plantId: String, val sides: List<ClassCounts>, val framesObserved: Int? = null) {
     init {
         require(sides.size in 1..2) { "a plant has 1 or 2 sides, got ${sides.size} ($plantId)" }
+        require(framesObserved == null || framesObserved >= 0) { "framesObserved must be >= 0: $framesObserved ($plantId)" }
+    }
+
+    companion object {
+        /**
+         * Builds the input of one plant from its effective per-side records. Sides without data are left out; returns
+         * null when no side has data (the plant must not enter the estimate).
+         */
+        fun fromRecords(plantId: String, records: Collection<PlantRecord>): PlantVisible? {
+            val withData = records.filter { it.hasData }
+            if (withData.isEmpty()) return null
+            val frames = if (withData.any { it.framesObserved == null }) null else withData.sumOf { it.framesObserved!! }
+            return PlantVisible(plantId, withData.map { it.counts }, frames)
+        }
     }
 }
 
@@ -69,7 +88,11 @@ object LotEstimator {
     ): LotEstimate {
         require(replicates > 0) { "replicates must be positive" }
         require(confidence > 0.0 && confidence < 1.0) { "confidence must be in (0, 1)" }
-        val plants = input.plants
+        val plants = input.plants.filter { it.framesObserved != 0 }
+        val excluded = input.plants.size - plants.size
+        val excludedNote = if (excluded > 0) {
+            "Se excluyeron $excluded planta(s) sin cuadros observados (sin dato)"
+        } else null
         val classSizes = plants.flatMap { p -> p.sides.map { it.perClass.size } }.distinct()
         require(classSizes.size <= 1) { "all plants must use the same number of classes, got $classSizes" }
         val numClasses = classSizes.firstOrNull() ?: 0
@@ -88,6 +111,7 @@ object LotEstimator {
                 LotStatus.INSUFFICIENT_EVIDENCE, plants.size, coverage, null, null, null, null, calibration, 0,
                 listOfNotNull(
                     "Evidencia insuficiente: ${plants.size} de $minPlants plantas mínimas",
+                    excludedNote,
                     totalPlantsNote,
                     ASSUMPTION_NOTE,
                 ),
@@ -183,6 +207,7 @@ object LotEstimator {
             }
         }
         totalPlantsNote?.let { notes += it }
+        excludedNote?.let { notes += it }
         if (sumVisible <= 0.0) {
             notes += "No se vieron pepas en las plantas recorridas; no hay proporción de madurez"
         } else if (maturityShare == null) {

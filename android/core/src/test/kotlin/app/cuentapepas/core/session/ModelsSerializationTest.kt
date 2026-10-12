@@ -3,8 +3,10 @@ package app.cuentapepas.core.session
 import app.cuentapepas.core.count.ClassCounts
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModelsSerializationTest {
@@ -50,5 +52,31 @@ class ModelsSerializationTest {
         assertThrows(IllegalArgumentException::class.java) { st(dur = Double.POSITIVE_INFINITY) }
         assertThrows(IllegalArgumentException::class.java) { st(warn = mapOf("blur" to Double.NaN)) }
         assertNull(st(fps = null).fpsMedian)
+    }
+
+    @Test fun legacyPlantAndStatsFilesDecodeWithUnknownCoverage() {
+        val p = json.decodeFromString<PlantRecord>(
+            """{"sessionId":"s","plantNumber":2,"counts":{"perClass":[1,2]},"startedAtMs":1,"endedAtMs":null}""",
+        )
+        assertNull(p.framesObserved)
+        assertTrue(p.hasData) // unknown is not "no data"
+        val st = json.decodeFromString<SessionStats>(
+            """{"framesProcessed":3,"durationS":1.0,"fpsMedian":null,"fpsP10":null,"inferenceMsMedian":null,"inferenceMsP90":null,""" +
+                """"delegate":"none","maxThermalStatus":-1,"batteryStartPct":null,"batteryEndPct":null,"batteryPctPerHour":null,""" +
+                """"warningFraction":{},"gpsAccuracyMedianM":null,"gpsAccuracyP90M":null}""",
+        )
+        assertNull(st.framesErrored)
+        assertNull(st.evalLogError)
+        assertNull(st.gpsSaveError)
+    }
+
+    @Test fun coverageRoundTripsAndZeroMeansNoData() {
+        val p = PlantRecord("s", 1, ClassCounts(intArrayOf(0, 0)), 0, null, framesObserved = 0, framesPaused = 4, framesErrored = 1)
+        assertEquals(p, json.decodeFromString<PlantRecord>(json.encodeToString(p)))
+        assertFalse(p.hasData)
+        assertThrows(IllegalArgumentException::class.java) { p.copy(framesObserved = -1) }
+        val st = SessionStats(1, 1.0, null, null, null, null, "CPU", 0, null, null, null, emptyMap(), null, null,
+            framesErrored = 2, framesDroppedByThrottle = 5, droppedPerfSamples = 1, evalLogError = "x", gpsSaveError = "y", videoIssue = "z")
+        assertEquals(st, json.decodeFromString<SessionStats>(json.encodeToString(st)))
     }
 }

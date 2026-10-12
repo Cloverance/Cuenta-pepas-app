@@ -52,6 +52,15 @@ data class SessionMeta(
     val seq: Long,
 )
 
+/**
+ * Counts of one plant of one pass.
+ *
+ * Coverage fields: how many processed camera frames were seen while this plant was active. `null` means "unknown"
+ * (a record written by an older version); it is NOT 0. [framesObserved] counts frames that were fully processed and
+ * counted (not paused, not failed); [framesPaused] frames processed while counting was paused; [framesErrored]
+ * frames that failed. A plant with `framesObserved == 0` has no data: its counts are meaningless zeros and every
+ * consumer (estimate, calibration) must ignore it ([hasData]).
+ */
 @Serializable
 data class PlantRecord(
     val sessionId: String,
@@ -59,7 +68,19 @@ data class PlantRecord(
     val counts: ClassCounts,
     val startedAtMs: Long,
     val endedAtMs: Long?,
-)
+    val framesObserved: Int? = null,
+    val framesPaused: Int? = null,
+    val framesErrored: Int? = null,
+) {
+    init {
+        require(framesObserved == null || framesObserved >= 0) { "framesObserved must be >= 0: $framesObserved" }
+        require(framesPaused == null || framesPaused >= 0) { "framesPaused must be >= 0: $framesPaused" }
+        require(framesErrored == null || framesErrored >= 0) { "framesErrored must be >= 0: $framesErrored" }
+    }
+
+    /** False only when the plant is known to have been observed in zero frames; unknown (legacy) counts as data. */
+    val hasData: Boolean get() = framesObserved != 0
+}
 
 /**
  * Hand count of one whole plant (both sides), kept apart from [PlantRecord] so re-recording a pass never erases it.
@@ -96,9 +117,24 @@ data class SessionStats(
     val warningFraction: Map<String, Double>,
     val gpsAccuracyMedianM: Double?,
     val gpsAccuracyP90M: Double?,
+    /** Frames that failed (detector, postprocessing or counting). Null = unknown (older file), never 0. */
+    val framesErrored: Int? = null,
+    /** Frames skipped because the device was too hot (one in two is dropped). Null = unknown. */
+    val framesDroppedByThrottle: Int? = null,
+    /** Latency/interval samples rejected as invalid. Null = unknown. */
+    val droppedPerfSamples: Int? = null,
+    /** Technical text of an evaluation-log failure (frames.jsonl incomplete), or null. */
+    val evalLogError: String? = null,
+    /** Technical text of GPS save failures that happened during the session (even if retried), or null. */
+    val gpsSaveError: String? = null,
+    /** Problem with the evaluation video (finalisation timeout, failed segment), or null. */
+    val videoIssue: String? = null,
 ) {
     init {
         require(framesProcessed >= 0) { "framesProcessed must be >= 0: $framesProcessed" }
+        require(framesErrored == null || framesErrored >= 0) { "framesErrored must be >= 0: $framesErrored" }
+        require(framesDroppedByThrottle == null || framesDroppedByThrottle >= 0) { "framesDroppedByThrottle must be >= 0" }
+        require(droppedPerfSamples == null || droppedPerfSamples >= 0) { "droppedPerfSamples must be >= 0" }
         requireFinite("durationS", durationS)
         require(durationS >= 0.0) { "durationS must be >= 0: $durationS" }
         requireFinite("fpsMedian", fpsMedian)
