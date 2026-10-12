@@ -364,16 +364,9 @@ private fun PlantsTable(d: SummaryData, onSaved: (Int) -> Unit, onError: (String
             scope.launch {
                 try {
                     for ((plant, count) in changes) services.store.setManualCount(d.meta.lotId, d.meta.row, plant, count)
-                    if (changes.isNotEmpty() || clears.isEmpty()) onSaved(changes.size)
-                    // TODO(store agent): the store has no delete for manual counts (SessionStore/FileSessionStore only
-                    //  append via setManualCount). Add deleteManualCount(lotId, row, plantNumber) and call it for `clears`.
-                    //  Until then clearing is refused openly instead of pretending the count was removed.
-                    if (clears.isNotEmpty()) {
-                        onError(
-                            context.getString(R.string.summary_manual_clear_unsupported) +
-                                " (" + clears.joinToString { "P$it" } + ")",
-                        )
-                    }
+                    // A cleared field removes the plant's manual count (no count = "sin dato", never 0).
+                    for (plant in clears) services.store.clearManualCount(d.meta.lotId, d.meta.row, plant)
+                    onSaved(changes.size + clears.size)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
