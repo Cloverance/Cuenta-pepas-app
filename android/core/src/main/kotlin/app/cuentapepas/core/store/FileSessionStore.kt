@@ -14,6 +14,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
 
 /** True when a session may move from [this] status to [to] (same status = no change). */
 fun SessionStatus.canTransitionTo(to: SessionStatus): Boolean = this == to ||
@@ -40,10 +41,18 @@ enum class SessionFileKind { META, PLANTS, GPS, STATS, FRAMES }
  * Startup sweep: opening the store marks every session still ACTIVE as ABANDONED, because ACTIVE can only be left
  * over by a process that was killed mid-recording. Their plants, GPS and stats files are kept untouched, and
  * [recoveredSessions] lists them so the UI can tell the user. A session whose meta cannot be read during the sweep
- * is not touched and is reported in [startupIssues]; later reads of it throw [CorruptDataException].
+ * is not touched and is reported in [startupIssues]; later direct reads of it throw [CorruptDataException]. The sweep
+ * also deletes orphan `*.tmp` files (a crash between fsync and rename; they hold no committed data), so a session
+ * directory holding only `.tmp` files is an incomplete one and reads as "not found".
+ *
+ * Listings ([sessions], sequence assignment, [deleteLot]) isolate a corrupt session instead of failing: it is left
+ * out and reported by [corruptSessions]; [discardCorruptSession] removes it deliberately.
  */
 class FileSessionStore(private val root: File, private val clock: () -> Long = System::currentTimeMillis) {
     private val lock = Any()
+
+    /** Sessions found unreadable, by directory name; refreshed by every listing. */
+    private val corrupt = LinkedHashMap<String, CorruptDataException>()
 
     /** Ids of the sessions the startup sweep changed from ACTIVE to ABANDONED. */
     val recoveredSessions: List<String>
@@ -53,6 +62,7 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
 
     init {
         ensureDir(root)
+        sweepOrphanTmp(root)
         val recovered = ArrayList<String>()
         val issues = ArrayList<CorruptDataException>()
         for (dir in sessionDirs()) {
@@ -64,6 +74,7 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
                 }
             } catch (e: CorruptDataException) {
                 issues += e
+                corrupt[dir.name] = e
             }
         }
         recoveredSessions = recovered
@@ -149,7 +160,7 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
         require(meta.status == SessionStatus.ACTIVE) { "A new session must be ACTIVE, got ${meta.status}" }
         require(readLots().any { it.id == meta.lotId }) { "Unknown lot: ${meta.lotId}" }
         require(!metaFile(meta.id).exists()) { "Session id already exists: ${meta.id}" }
-        require(meta.plantStep != 0) { "plantStep must not be 0" }
+        validateMeta(meta)
         val stored = meta.copy(seq = nextSeq())
         writeMeta(stored)
         stored
@@ -166,6 +177,7 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
         check(meta.lotId == old.lotId && meta.row == old.row && meta.side == old.side && meta.seq == old.seq) {
             "lotId, row, side and seq of a session cannot change"
         }
+        validateMeta(meta)
         check(old.status.canTransitionTo(meta.status)) { "Illegal status transition ${old.status} -> ${meta.status}" }
         if (old.status != SessionStatus.ACTIVE) {
             check(meta.copy(status = old.status) == old) { "Session ${old.id} is ${old.status} and cannot be edited" }
@@ -219,6 +231,7 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
         val s = readMeta(sessionId)
         check(s.status == SessionStatus.ACTIVE) { "Plants can only be saved while the session is ACTIVE (${s.status})" }
         require(plants.all { it.sessionId == sessionId }) { "Every plant record must belong to session $sessionId" }
+        require(plants.all { it.plantNumber >= 1 }) { "plantNumber must be >= 1" }
         val dup = plants.groupingBy { it.plantNumber }.eachCount().filterValues { it > 1 }.keys.sorted()
         require(dup.isEmpty()) { "Número(s) de planta repetido(s): ${dup.joinToString()}" }
         writeJson(plantsFile(sessionId), ListSerializer(PlantRecord.serializer()), plants)
@@ -230,12 +243,19 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
     fun appendGps(sessionId: String, points: List<GpsPoint>) = synchronized(lock) {
         val s = readMeta(sessionId)
         check(s.status == SessionStatus.ACTIVE) { "GPS points can only be appended while the session is ACTIVE (${s.status})" }
-        if (points.isEmpty()) return@synchronized
-        val text = buildString {
-            for (p in points) append(SessionJson.encodeToString(GpsPoint.serializer(), p)).append('\n')
+        for (p in points) {
+            require(p.lat.isFinite() && p.lat in -90.0..90.0) { "lat out of range: ${p.lat}" }
+            require(p.lon.isFinite() && p.lon in -180.0..180.0) { "lon out of range: ${p.lon}" }
+            require(p.accuracyM.isFinite()) { "accuracyM must be finite: ${p.accuracyM}" }
         }
+        if (points.isEmpty()) return@synchronized
         val file = gpsFile(sessionId)
         ensureDir(file.parentFile)
+        val text = buildString {
+            // A torn tail (no final newline) must stay an isolated bad line, not swallow the next point.
+            if (!endsWithNewlineOrEmpty(file)) append('\n')
+            for (p in points) append(SessionJson.encodeToString(GpsPoint.serializer(), p)).append('\n')
+        }
         FileOutputStream(file, true).use { out ->
             out.write(text.toByteArray(Charsets.UTF_8))
             out.fd.sync()
@@ -243,29 +263,36 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
     }
 
     /**
-     * All recorded points. An append killed mid-write can leave one unterminated, truncated last line; only that
-     * line is ignored. Any other undecodable line throws [CorruptDataException].
+     * All recorded points. A write killed mid-append leaves a truncated line (no closing brace); such torn lines are
+     * skipped wherever they are (a later append starts a new line after it) and counted by [gpsTornLines]. Any other
+     * undecodable line throws [CorruptDataException], except an unterminated last line, which is also skipped.
      */
-    fun gps(sessionId: String): List<GpsPoint> = synchronized(lock) {
+    fun gps(sessionId: String): List<GpsPoint> = synchronized(lock) { readGps(sessionId).first }
+
+    /** Number of torn (truncated) lines skipped when reading the GPS track of [sessionId]. */
+    fun gpsTornLines(sessionId: String): Int = synchronized(lock) { readGps(sessionId).second }
+
+    private fun readGps(sessionId: String): Pair<List<GpsPoint>, Int> {
         readMeta(sessionId)
         val file = gpsFile(sessionId)
-        if (!file.isFile) return@synchronized emptyList()
+        if (!file.isFile) return emptyList<GpsPoint>() to 0
         val lines = file.readText(Charsets.UTF_8).split('\n')
         val out = ArrayList<GpsPoint>(lines.size)
+        var torn = 0
         for ((i, line) in lines.withIndex()) {
             if (line.isBlank()) continue
             val unterminated = i == lines.lastIndex // text after the last newline
             try {
                 out += SessionJson.decodeFromString(GpsPoint.serializer(), line)
             } catch (e: SerializationException) {
-                if (unterminated) continue
+                if (unterminated || !line.trimEnd().endsWith("}")) { torn++; continue }
                 throw CorruptDataException(file.path, "línea ${i + 1} ilegible", e)
             } catch (e: IllegalArgumentException) {
-                if (unterminated) continue
+                if (unterminated || !line.trimEnd().endsWith("}")) { torn++; continue }
                 throw CorruptDataException(file.path, "línea ${i + 1} ilegible", e)
             }
         }
-        out
+        return out to torn
     }
 
     // ---- stats ----
@@ -301,6 +328,8 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
      */
     fun setManualCount(lotId: String, row: Int, plantNumber: Int, count: Int): ManualCount = synchronized(lock) {
         requireLot(lotId)
+        require(row >= 1) { "row must be >= 1: $row" }
+        require(plantNumber >= 1) { "plantNumber must be >= 1: $plantNumber" }
         require(count >= 0) { "El conteo manual no puede ser negativo: $count" }
         val file = manualFile(lotId)
         val all = (readJson(file, ListSerializer(ManualCount.serializer())) ?: emptyList()).toMutableList()
@@ -318,7 +347,61 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
         if (readLots().none { it.id == lotId }) throw LotNotFoundException(lotId)
     }
 
-    private fun readLots(): List<Lot> = readJson(lotsFile, ListSerializer(Lot.serializer())) ?: emptyList()
+    private fun readLots(): List<Lot> {
+        val lots = readJson(lotsFile, ListSerializer(Lot.serializer()))
+        if (lots == null) {
+            if (sessionDirs().any { !it.list().isNullOrEmpty() }) {
+                throw CorruptDataException(lotsFile.path, "lots.json missing while sessions exist")
+            }
+            return emptyList()
+        }
+        return lots
+    }
+
+    private fun validateMeta(meta: SessionMeta) {
+        require(meta.row >= 1) { "row must be >= 1: ${meta.row}" }
+        require(meta.firstPlant >= 1) { "firstPlant must be >= 1: ${meta.firstPlant}" }
+        require(meta.plantStep == 1 || meta.plantStep == -1) { "plantStep must be -1 or +1: ${meta.plantStep}" }
+    }
+
+    private fun endsWithNewlineOrEmpty(file: File): Boolean {
+        if (!file.isFile || file.length() == 0L) return true
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(raf.length() - 1)
+            return raf.read() == '\n'.code
+        }
+    }
+
+    private fun sweepOrphanTmp(dir: File) {
+        for (f in dir.listFiles() ?: return) {
+            if (f.isDirectory) sweepOrphanTmp(f)
+            else if (f.name.endsWith(".tmp") && !f.delete()) throw IOException("Cannot delete orphan $f")
+        }
+    }
+
+    /** Sessions whose files cannot be decoded right now (they are left out of [sessions]). */
+    fun corruptSessions(): List<CorruptDataException> = synchronized(lock) {
+        readAllMetas()
+        corrupt.values.toList()
+    }
+
+    /**
+     * Deletes the directory of [sessionId] only if it is corrupt (checked again now). @return false when the session
+     * is readable, incomplete or unknown (nothing is deleted).
+     */
+    fun discardCorruptSession(sessionId: String): Boolean = synchronized(lock) {
+        val dir = sessionDir(sessionId)
+        if (!dir.isDirectory) return@synchronized false
+        try {
+            readMetaOrNull(dir)
+            corrupt.remove(dir.name)
+            false
+        } catch (e: CorruptDataException) {
+            if (!dir.deleteRecursively()) throw IOException("Cannot delete $dir")
+            corrupt.remove(dir.name)
+            true
+        }
+    }
 
     private fun completedFor(s: SessionMeta, excludeId: String): List<SessionMeta> = readAllMetas().filter {
         it.status == SessionStatus.COMPLETED && it.id != excludeId &&
@@ -328,8 +411,17 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
     private fun sessionDirs(): List<File> =
         sessionsDir().listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
 
-    private fun readAllMetas(): List<SessionMeta> =
-        sessionDirs().mapNotNull { readMetaOrNull(it) }.sortedBy { it.seq }
+    private fun readAllMetas(): List<SessionMeta> {
+        corrupt.clear()
+        return sessionDirs().mapNotNull {
+            try {
+                readMetaOrNull(it)
+            } catch (e: CorruptDataException) {
+                corrupt[it.name] = e
+                null
+            }
+        }.sortedBy { it.seq }
+    }
 
     private fun readMeta(id: String): SessionMeta = readMetaOrNull(sessionDir(id)) ?: throw SessionNotFoundException(id)
 
@@ -338,7 +430,8 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
         val f = File(dir, "meta.json")
         val meta = readJson(f, SessionMeta.serializer())
         if (meta == null) {
-            if (dir.list().isNullOrEmpty()) return null
+            // Empty, or only `.tmp` leftovers of a write that never reached its rename: incomplete, holds nothing.
+            if (dir.list().orEmpty().all { it.endsWith(".tmp") }) return null
             throw CorruptDataException(dir.path, "la carpeta de la sesión no tiene meta.json")
         }
         if (meta.id != dir.name) {

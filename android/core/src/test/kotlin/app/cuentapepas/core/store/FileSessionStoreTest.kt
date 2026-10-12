@@ -144,8 +144,70 @@ class FileSessionStoreTest {
         val f = File(tmp.root, "sessions/a/gps.jsonl")
         f.appendText("{\"tMs\":4,\"la")
         assertEquals(3, s.gps("a").size)
-        f.appendText("\n{\"tMs\":5,\"lat\":1.0,\"lon\":1.0,\"accuracyM\":1.0}\n")
-        assertThrows(CorruptDataException::class.java) { s.gps("a") } // damaged line is no longer the last one
+        assertEquals(1, s.gpsTornLines("a"))
+        // the REAL append after a torn write keeps the torn line isolated and every valid point readable
+        s.appendGps("a", listOf(GpsPoint(5, 1.0, 1.0, 1f)))
+        assertEquals(listOf(1L, 2L, 3L, 5L), s.gps("a").map { it.tMs })
+        assertEquals(1, s.gpsTornLines("a"))
+        // a complete-looking but undecodable middle line is real corruption
+        f.appendText("{\"tMs\":\"x\"}\n")
+        s.appendGps("a", listOf(GpsPoint(6, 1.0, 1.0, 1f)))
+        assertThrows(CorruptDataException::class.java) { s.gps("a") }
+    }
+
+    @Test fun tmpOnlySessionDirIsIncompleteAndSwept() {
+        val s = store()
+        s.createSession(meta("a"))
+        val d = File(tmp.root, "sessions/ghost").apply { mkdirs() }
+        File(d, "meta.json.tmp").writeText("{}")
+        File(tmp.root, "lots.json.tmp").writeText("[")
+        val s2 = open()
+        assertFalse(File(d, "meta.json.tmp").exists())
+        assertFalse(File(tmp.root, "lots.json.tmp").exists())
+        assertEquals(listOf("a"), s2.sessions().map { it.id })
+        assertTrue(s2.startupIssues.isEmpty())
+        // tmp present after startup: still incomplete, does not break listing or creation
+        File(d, "meta.json.tmp").writeText("{}")
+        assertEquals(1, s2.sessions().size)
+        assertEquals(2, s2.createSession(meta("ghost", row = 2)).seq)
+    }
+
+    @Test fun corruptSessionIsIsolatedAndDiscardable() {
+        val s = store()
+        s.createSession(meta("a"))
+        s.createSession(meta("b", row = 2))
+        File(tmp.root, "sessions/a/meta.json").writeText("garbage")
+        assertEquals(listOf("b"), s.sessions().map { it.id })
+        assertEquals(3, s.createSession(meta("c", row = 3)).seq)
+        assertEquals(1, s.corruptSessions().size)
+        assertFalse(s.discardCorruptSession("b")) // readable: refused
+        assertTrue(File(tmp.root, "sessions/b").exists())
+        assertTrue(s.discardCorruptSession("a"))
+        assertFalse(File(tmp.root, "sessions/a").exists())
+        assertTrue(s.corruptSessions().isEmpty())
+    }
+
+    @Test fun missingLotsJsonWithSessionsIsCorrupt() {
+        val s = store()
+        s.createSession(meta("a"))
+        File(tmp.root, "lots.json").delete()
+        val e = assertThrows(CorruptDataException::class.java) { s.lots() }
+        assertTrue(e.message!!.contains("lots.json missing while sessions exist"))
+    }
+
+    @Test fun invalidValuesRejectedAtWriteTime() {
+        val s = store()
+        assertThrows(IllegalArgumentException::class.java) { s.createSession(meta("x", row = 0)) }
+        assertThrows(IllegalArgumentException::class.java) { s.createSession(meta("x").copy(firstPlant = 0)) }
+        assertThrows(IllegalArgumentException::class.java) { s.createSession(meta("x").copy(plantStep = 2)) }
+        s.createSession(meta("a").copy(plantStep = -1))
+        assertThrows(IllegalArgumentException::class.java) { s.savePlants("a", listOf(plant("a", 0))) }
+        assertThrows(IllegalArgumentException::class.java) { s.appendGps("a", listOf(GpsPoint(1, 91.0, 0.0, 1f))) }
+        assertThrows(IllegalArgumentException::class.java) { s.appendGps("a", listOf(GpsPoint(1, 0.0, Double.NaN, 1f))) }
+        assertThrows(IllegalArgumentException::class.java) { s.appendGps("a", listOf(GpsPoint(1, 0.0, 181.0, 1f))) }
+        assertThrows(IllegalArgumentException::class.java) { s.setManualCount("L1", 0, 1, 1) }
+        assertThrows(IllegalArgumentException::class.java) { s.setManualCount("L1", 1, 0, 1) }
+        assertTrue(s.gps("a").isEmpty())
     }
 
     @Test fun corruptJsonThrowsAndIsNeverRecreated() {
@@ -160,7 +222,8 @@ class FileSessionStoreTest {
         File(tmp.root, "lots.json").writeText("[")
         assertThrows(CorruptDataException::class.java) { s.lots() }
         File(tmp.root, "sessions/a/meta.json").writeText("garbage")
-        assertThrows(CorruptDataException::class.java) { s.sessions() }
+        assertThrows(CorruptDataException::class.java) { s.session("a") }
+        assertTrue(s.sessions().isEmpty()) // isolated, not fatal
         // the startup sweep reports instead of crashing the app at startup
         assertEquals(1, open().startupIssues.size)
     }
