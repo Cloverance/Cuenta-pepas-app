@@ -77,3 +77,12 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// Copies the repo-level NOTICE (written by the ML plan) into the assets shown by the About screen.
+// The copy is git-ignored; a missing NOTICE is reported by the About screen instead of failing the build.
+val copyNotice by tasks.registering(Copy::class) {
+    from(rootProject.layout.projectDirectory.file("../NOTICE"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+    rename { "NOTICE.txt" }
+}
+tasks.named("preBuild") { dependsOn(copyNotice) }

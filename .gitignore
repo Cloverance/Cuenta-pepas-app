@@ -32,3 +32,6 @@ android/.idea/
 
 # Benchmark images (copied from data/local/bench; attribution stays tracked)
 android/app/src/main/assets/bench/*.jpg
+
+# NOTICE copy made by the copyNotice Gradle task
+android/app/src/main/assets/NOTICE.txt
