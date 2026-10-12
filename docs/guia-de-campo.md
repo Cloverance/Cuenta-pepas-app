@@ -156,8 +156,8 @@ El benchmark mide cómo se comporta el teléfono con el detector durante un uso 
 
 Al terminar la prueba, enviar al equipo del proyecto:
 
-1. **Las sesiones.** Exportar los recorridos desde la app. Las sesiones se exportan como JSON y CSV.
-2. **Los videos del modo evaluación**, de los recorridos que se grabaron con esa casilla marcada, junto con su registro por cuadro (JSONL).
+1. **Las sesiones.** En el resumen de cada recorrido, botón **"Exportar (zip)"**. El zip trae `meta.json`, `plants.json`, `plants.csv`, `gps.jsonl`, `stats.json` y, si se usó el modo evaluación, `frames.jsonl` (registro por cuadro).
+2. **Los videos del modo evaluación**, con el botón **"Compartir video"** del mismo resumen. Si la app pasó a segundo plano durante el recorrido, el video viene en varias partes (`<id>.mp4`, `<id>_1.mp4`, …): enviarlas todas.
 3. **El json del benchmark** de 15 minutos.
 4. **La bitácora de campo** (texto libre): fecha, finca, lote, condiciones de luz, avisos que aparecieron con frecuencia, incidencias y tiempo que tomó cada recorrido.
 
@@ -168,6 +168,8 @@ No enviar coordenadas exactas de la finca por canales públicos. Los datos propi
 ## 10. Limitaciones conocidas de la versión 0.1
 
 - **Entrenado solo con datos de Uganda** (Croppie coffee UG). No hay todavía datos colombianos, ni café bajo sombrío, ni arábica de la zona.
+- **Desempeño medido en validación (fotos de Uganda, no de campo colombiano):** mAP50 = 0,50; recall de pepas = 0,71 (0,44 en pepas pequeñas en la imagen, 0,88 en medianas). AP50 por clase: verde 0,66, pintón 0,29, maduro 0,72, sobremaduro 0,32, seco sin datos. En campo colombiano puede ser peor: por eso existen el modo evaluación y la calibración.
+- **Pepas pequeñas en la imagen se pierden más:** acercarse a 50 cm mejora la detección.
 - Las clases **sobremaduro** y **seco** vienen fusionadas en el dataset de origen. Por eso la separación entre ellas es débil, y la clase **seco** no tiene ejemplos de entrenamiento.
 - Las variedades de **fruto amarillo** pueden confundirse en la clase pintón.
 - El modelo incluye ejemplos de **robusta**, cuyo fruto y racimo son distintos del arábica.
