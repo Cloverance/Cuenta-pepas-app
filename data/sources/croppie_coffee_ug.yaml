@@ -1,0 +1,32 @@
+name: croppie_coffee_ug
+title: Croppie coffee Uganda
+url: https://huggingface.co/datasets/rgautroncgiar/croppie_coffee_ug
+provider: Producers Direct & Alliance Bioversity International and CIAT
+license: CC-BY-SA-4.0
+license_note: "La ficha de HF enlaza además a una guía GPLv3 (license_link); el texto del README declara CC BY-SA 4.0. Se trata como CC BY-SA 4.0."
+commercial_use: true
+share_alike: true
+status: usable
+species: [arabica, robusta]
+capture: "Celulares de pequeños productores en finca (Uganda), partes del árbol, a veces con tabla de fondo"
+approx_images: 8333
+format: yolo
+annotation: bbox_amodal_partial   # cajas sobre frutos >10 mm; guía de anotación incluida
+download:
+  method: http
+  base_url: https://huggingface.co/datasets/rgautroncgiar/croppie_coffee_ug/resolve/main
+  files: [data/train.zip, data/val.zip, _classes.txt, _pictures_to_exclude.txt, README.md, annotation_guide.html]
+  retrieved: 2026-10-11
+source_classes: {0: dark_brown_cherry, 1: green_cherry, 2: low_visibility_unsure, 3: red_cherry, 4: yellow_cherry}
+class_map:
+  green_cherry: green
+  yellow_cherry: semi_ripe     # en variedades de fruto amarillo, amarillo = maduro (limitación conocida)
+  red_cherry: ripe
+  dark_brown_cherry: overripe  # la fuente fusiona sobremaduro y seco; 'dry' queda sin datos de esta fuente
+  low_visibility_unsure: null  # <0.5 % de cajas; se descarta
+exclude_original_ids: ["1688117174257", "1688718305705"]
+notes: >
+  Las particiones train/val originales comparten 622 de 631 imágenes originales (recortes de la misma foto
+  en ambas). Se re-particiona por sesión de captura (ids = marcas de tiempo en ms; sesión nueva si el hueco
+  supera 5 min). Los ids de exclude_original_ids no están en los zips descargados (631 originales frente a
+  los 633 del README); se mantienen como salvaguarda. Nunca se redistribuye el dataset.

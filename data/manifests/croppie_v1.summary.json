@@ -1,0 +1,36 @@
+{
+  "seed": 20261011,
+  "val_fraction": 0.15,
+  "group_gap_seconds": 300.0,
+  "n_images": {
+    "train": 7382,
+    "val": 951
+  },
+  "n_originals": {
+    "train": 559,
+    "val": 72
+  },
+  "n_groups": {
+    "train": 136,
+    "val": 24
+  },
+  "boxes_per_class": {
+    "train": {
+      "green": 42395,
+      "semi_ripe": 15809,
+      "ripe": 67588,
+      "overripe": 6337,
+      "dry": 0
+    },
+    "val": {
+      "green": 7317,
+      "semi_ripe": 1243,
+      "ripe": 7402,
+      "overripe": 633,
+      "dry": 0
+    }
+  },
+  "dropped_boxes": 740,
+  "excluded_images": 0,
+  "taxonomy_schema_version": 1
+}

@@ -23,7 +23,8 @@ export TMP="$CP_TOOLS/tmp"
 export TMPDIR="$CP_TOOLS/tmp"
 mkdir -p "$CP_TOOLS/tmp" "$CP_TOOLS/java-user-home"
 # JVM options cannot contain spaces ("Programas Data"), so use Windows 8.3 short paths.
-_cp_short() { cygpath -d "$1" 2>/dev/null || echo "$1"; }
+# -m gives forward slashes: shell scripts like gradlew strip backslashes.
+_cp_short() { cygpath -m "$(cygpath -d "$1")" 2>/dev/null || echo "$1"; }
 export GRADLE_OPTS="-Djava.io.tmpdir=$(_cp_short "$CP_TOOLS/tmp")"
 export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$(_cp_short "$CP_TOOLS/tmp") -Duser.home=$(_cp_short "$CP_TOOLS/java-user-home")"
 
