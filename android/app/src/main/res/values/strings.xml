@@ -28,4 +28,9 @@
     <!-- Errores del canal de procesamiento -->
     <string name="frame_errors">Errores de procesamiento: %1$d. Último: %2$s</string>
     <string name="logging_error">Falla el registro de evaluación: %1$s</string>
+
+    <!-- Exportación y almacenamiento -->
+    <string name="export_share_title">Compartir sesión</string>
+    <string name="data_corrupt">Datos corruptos en %1$s. No se modificaron; expórtelos o bórrelos manualmente.</string>
+    <string name="sessions_recovered">%1$d sesión(es) quedaron interrumpidas y se marcaron como abandonadas.</string>
 </resources>
