@@ -69,7 +69,8 @@ class DeviceMonitor(context: Context) : AutoCloseable {
         appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) // sticky broadcast
 
     override fun close() {
-        thermalHandle?.unregister()
+        // thermalHandle is only ever created on API 29+ (see init); the explicit check keeps that invariant visible.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) thermalHandle?.unregister()
         thermalHandle = null
     }
 

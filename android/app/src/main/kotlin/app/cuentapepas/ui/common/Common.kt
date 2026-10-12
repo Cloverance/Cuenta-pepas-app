@@ -31,7 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -116,14 +116,17 @@ class Loader<T>(val state: State<Load<T>>, val reload: () -> Unit)
 fun <T> rememberLoader(key: Any?, block: suspend () -> T): Loader<T> {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
-    val state = produceState<Load<T>>(Load.Loading, key, tick) {
-        value = try {
-            Load.Ok(withContext(Dispatchers.Default) { block() })
+    val state = remember { mutableStateOf<Load<T>>(Load.Loading) }
+    LaunchedEffect(key, tick) {
+        state.value = Load.Loading // a reload shows progress instead of the previous result
+        try {
+            val result = withContext(Dispatchers.Default) { block() }
+            state.value = Load.Ok(result)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val info = context.describeError(e)
-            Load.Failed(info.message, info.detail)
+            state.value = Load.Failed(info.message, info.detail)
         }
     }
     return remember(state) { Loader(state) { tick++ } }
