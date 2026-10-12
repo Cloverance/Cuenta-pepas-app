@@ -65,4 +65,164 @@
     <string name="bench_no_data">sin dato</string>
     <string name="bench_share_chooser">Compartir benchmark</string>
     <string name="bench_share_failed">No se pudo compartir el resultado: %1$s</string>
+
+    <!-- Comunes -->
+    <string name="common_back">Volver</string>
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_accept">Aceptar</string>
+    <string name="common_save">Guardar</string>
+    <string name="common_loading">Cargando…</string>
+    <string name="common_retry">Reintentar</string>
+    <string name="common_no_data">sin dato</string>
+    <string name="error_generic">Ocurrió un error: %1$s</string>
+    <string name="error_integrity">Los datos guardados son inconsistentes: %1$s</string>
+    <string name="error_lot_missing">No se encontró el lote.</string>
+
+    <!-- Inicio y lotes -->
+    <string name="home_title">Lotes</string>
+    <string name="home_new_lot">Nuevo lote</string>
+    <string name="home_empty">Todavía no hay lotes. Cree uno para empezar a recorrer surcos.</string>
+    <string name="home_bench">Benchmark</string>
+    <string name="home_settings">Ajustes</string>
+    <string name="home_about">Acerca de</string>
+    <string name="home_lot_sessions">%1$d recorrido(s)</string>
+    <string name="home_lot_error">Datos del lote no disponibles: %1$s</string>
+    <string name="home_notice_title">Aviso al iniciar</string>
+    <string name="home_notice_recovered">%1$d recorrido(s) quedaron interrumpidos y se marcaron como abandonados; sus datos no cuentan en los resultados.</string>
+    <string name="home_notice_corrupt">No se pudo leer %1$s. Los datos no se modificaron; expórtelos o bórrelos manualmente.</string>
+    <string name="lot_dialog_new">Nuevo lote</string>
+    <string name="lot_dialog_edit">Editar lote</string>
+    <string name="lot_name">Nombre</string>
+    <string name="lot_total_plants">Plantas totales (opcional)</string>
+    <string name="lot_cherries_per_kg">Pepas por kg (opcional)</string>
+    <string name="lot_cherries_per_kg_help">Medir en su finca; no se usa valor por defecto</string>
+    <string name="lot_error_name">Escriba un nombre.</string>
+    <string name="lot_error_total">Las plantas totales deben ser un entero mayor que 0.</string>
+    <string name="lot_error_kg">Las pepas por kg deben ser un número mayor que 0.</string>
+    <string name="lot_screen_edit">Editar lote</string>
+    <string name="lot_new_session">Nuevo recorrido</string>
+    <string name="lot_calibration">Calibración</string>
+    <string name="lot_estimate">Estimación</string>
+    <string name="lot_sessions_title">Recorridos</string>
+    <string name="lot_no_sessions">Este lote no tiene recorridos.</string>
+    <string name="lot_session_line">Surco %1$d, lado %2$s · %3$s · %4$s</string>
+    <string name="lot_total_plants_line">Plantas totales: %1$s</string>
+    <string name="lot_cherries_per_kg_line">Pepas por kg: %1$s</string>
+    <string name="session_status_ACTIVE">activo</string>
+    <string name="session_status_COMPLETED">completo</string>
+    <string name="session_status_REPLACED">reemplazado</string>
+    <string name="session_status_ABANDONED">abandonado</string>
+
+    <!-- Nuevo recorrido -->
+    <string name="new_title">Nuevo recorrido</string>
+    <string name="new_row">Surco (número)</string>
+    <string name="new_side">Lado</string>
+    <string name="new_first_plant">Primera planta</string>
+    <string name="new_direction">Dirección de las plantas</string>
+    <string name="new_direction_up">+1 (ascendente)</string>
+    <string name="new_direction_down">−1 (descendente)</string>
+    <string name="new_calibration">Plantas de muestra para calibración</string>
+    <string name="new_evaluation">Modo evaluación (graba video y registro por cuadro)</string>
+    <string name="new_start">Comenzar</string>
+    <string name="new_error_row">El surco debe ser un entero mayor que 0.</string>
+    <string name="new_error_plant">La primera planta debe ser un entero mayor que 0.</string>
+    <string name="new_conflict_title">Recorrido repetido</string>
+    <string name="new_conflict_message">Este surco y lado ya se recorrió el %1$s. ¿Reemplazar ese recorrido? (los conteos no se suman)</string>
+    <string name="new_conflict_replace">Reemplazar</string>
+
+    <!-- Resumen -->
+    <string name="summary_title">Resumen del recorrido</string>
+    <string name="summary_header">Surco %1$d, lado %2$s · %3$s</string>
+    <string name="summary_status">Estado: %1$s</string>
+    <string name="summary_plants_title">Plantas</string>
+    <string name="summary_no_plants">No se registraron plantas.</string>
+    <string name="summary_col_plant">Planta</string>
+    <string name="summary_col_total">Total</string>
+    <string name="summary_col_manual">Conteo manual</string>
+    <string name="summary_total_row">Total</string>
+    <string name="summary_manual_hint">Conteo manual de la planta completa (ambos lados). Se usa para calibrar el lote.</string>
+    <string name="summary_manual_save">Guardar conteos manuales</string>
+    <string name="summary_manual_saved">Conteos manuales guardados: %1$d</string>
+    <string name="summary_manual_invalid">Valor no válido en la planta %1$d (use un entero ≥ 0).</string>
+    <string name="summary_stats_title">Estadísticas</string>
+    <string name="summary_stats_missing">Este recorrido no tiene estadísticas guardadas.</string>
+    <string name="stat_duration">Duración: %1$s</string>
+    <string name="stat_frames">Cuadros procesados: %1$d</string>
+    <string name="stat_fps">FPS: mediana %1$s, p10 %2$s</string>
+    <string name="stat_inference">Inferencia (ms): mediana %1$s, p90 %2$s</string>
+    <string name="stat_delegate">Delegado: %1$s</string>
+    <string name="stat_thermal">Estado térmico máximo: %1$s</string>
+    <string name="stat_battery">Batería: %1$s por hora</string>
+    <string name="stat_warnings">Cuadros con aviso de calidad:</string>
+    <string name="stat_warning_line">%1$s: %2$s</string>
+    <string name="stat_warnings_none">Cuadros con aviso de calidad: sin dato</string>
+    <string name="stat_gps">Precisión GPS (m): mediana %1$s, p90 %2$s</string>
+    <string name="summary_export">Exportar (zip)</string>
+    <string name="summary_share_video">Compartir video</string>
+    <string name="summary_video_missing">No se encontró el video de este recorrido.</string>
+    <string name="summary_share_video_title">Compartir video</string>
+    <string name="summary_exporting">Exportando…</string>
+    <string name="summary_done">Listo</string>
+    <string name="gps_check_title">Posible surco repetido</string>
+    <string name="gps_repeat">El trazado GPS coincide ≥70 %% con el recorrido %1$s. ¿Es un surco repetido?</string>
+    <string name="gps_mark_replacement">Marcar este como reemplazo de %1$s</string>
+    <string name="gps_distinct">Son distintos</string>
+    <string name="gps_unverifiable">GPS insuficiente para verificar contra el recorrido %1$s</string>
+    <string name="gps_replaced_ok">El recorrido %1$s quedó marcado como reemplazado.</string>
+    <string name="gps_cannot_replace">No se puede marcar el recorrido %1$s como reemplazado: ya no está completo o este recorrido no está completo.</string>
+    <string name="gps_session_label">surco %1$d lado %2$s del %3$s</string>
+
+    <!-- Calibración -->
+    <string name="cal_title">Calibración del lote</string>
+    <string name="cal_none_big">Sin calibración</string>
+    <string name="cal_samples">Plantas de muestra: %1$d (mínimo %2$d)</string>
+    <string name="cal_k">Factor k (pepas totales por pepa visible): %1$s</string>
+    <string name="cal_plant_factor">Factor por planta: %1$s</string>
+    <string name="cal_loocv">Error medio de validación cruzada (LOOCV): %1$s</string>
+    <string name="cal_explain">El factor convierte pepas visibles desde un lado en pepas totales de la planta. Solo vale para el mismo protocolo (un lado, distancia ~50–80 cm).</string>
+    <string name="cal_skipped_title">Plantas con conteo manual que no se pudieron usar</string>
+    <string name="cal_skipped_line">Planta %1$s: %2$s</string>
+    <string name="cal_samples_title">Plantas usadas</string>
+    <string name="cal_sample_line">Planta %1$s: visibles %2$d, manual %3$d</string>
+    <string name="cal_how_to">Para calibrar, marque recorridos como muestra y escriba el conteo manual de cada planta en el resumen del recorrido.</string>
+
+    <!-- Estimación -->
+    <string name="est_title">Estimación del lote</string>
+    <string name="est_status_INSUFFICIENT_EVIDENCE">Evidencia insuficiente</string>
+    <string name="est_status_VISIBLE_ONLY">Solo pepas visibles</string>
+    <string name="est_status_CALIBRATED">Calibrado</string>
+    <string name="est_visible_per_plant">Pepas visibles por planta (no es cosecha): %1$s</string>
+    <string name="est_visible_per_plant_cal">Pepas visibles por planta: %1$s</string>
+    <string name="est_total_cherries">Pepas totales estimadas: %1$s</string>
+    <string name="est_total_kg">Peso estimado (kg): %1$s</string>
+    <string name="est_visited">Plantas recorridas: %1$d</string>
+    <string name="est_maturity_title">Proporción de madurez (pepas visibles)</string>
+    <string name="est_maturity_none">Proporción de madurez: sin dato</string>
+    <string name="est_walked_title">Surcos y lados recorridos</string>
+    <string name="est_walked_none">Todavía no hay recorridos completos.</string>
+    <string name="est_walked_line">Surco %1$d: %2$s</string>
+    <string name="est_walked_side">lado %1$s (%2$d plantas)</string>
+    <string name="est_notes_title">Notas del estimador</string>
+    <string name="est_issues_title">Avisos sobre los datos</string>
+
+    <!-- Ajustes -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_note">Valores provisionales; se recalibran con datos de campo</string>
+    <string name="settings_reset">Restaurar valores</string>
+    <string name="settings_saved">Ajustes guardados.</string>
+    <string name="settings_reset_done">Se restauraron los valores.</string>
+    <string name="settings_invalid">Valor no válido en «%1$s»: %2$s</string>
+
+    <!-- Acerca de -->
+    <string name="about_title">Acerca de</string>
+    <string name="about_version">Versión de la app: %1$s</string>
+    <string name="about_model_id">Modelo: %1$s</string>
+    <string name="about_training_run">Corrida de entrenamiento: %1$s</string>
+    <string name="about_classes">Clases: %1$s</string>
+    <string name="about_metrics_title">Métricas del modelo (conjunto de validación, no de campo)</string>
+    <string name="about_metric_line">%1$s: %2$s</string>
+    <string name="about_limits_title">Limitaciones del modelo</string>
+    <string name="about_limits_text">El modelo se entrenó y se evaluó con imágenes fijas; las métricas no garantizan el mismo desempeño en su finca. Funciona mejor con buena luz, a ~50–80 cm de la rama y mirando un solo lado de la planta. Las pepas ocultas por hojas, ramas u otras pepas no se ven ni se cuentan, y el color de madurez puede confundirse con sombra o contraluz. Por eso el conteo es de pepas visibles; para estimar la cosecha se necesita la calibración del lote con conteos manuales.</string>
+    <string name="about_licenses_title">Licencias y atribuciones</string>
+    <string name="about_notice_missing">No se encontró el archivo NOTICE: %1$s</string>
 </resources>

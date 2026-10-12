@@ -1,0 +1,104 @@
+package app.cuentapepas.ui.estimate
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import app.cuentapepas.R
+import app.cuentapepas.core.estimate.LotEstimate
+import app.cuentapepas.core.estimate.LotEstimator
+import app.cuentapepas.core.estimate.LotInput
+import app.cuentapepas.core.estimate.LotStatus
+import app.cuentapepas.core.estimate.PlantVisible
+import app.cuentapepas.core.format.Fmt
+import app.cuentapepas.core.session.Lot
+import app.cuentapepas.core.session.PassResolver
+import app.cuentapepas.core.session.Resolution
+import app.cuentapepas.ui.common.LoadView
+import app.cuentapepas.ui.common.ScreenScaffold
+import app.cuentapepas.ui.common.loadLotData
+import app.cuentapepas.ui.common.rememberLoader
+import app.cuentapepas.ui.common.classNames
+import app.cuentapepas.ui.common.services
+
+private class EstimateData(val lot: Lot, val resolution: Resolution, val estimate: LotEstimate, val classNames: List<String>)
+
+@Composable
+fun LotEstimateScreen(lotId: String, onBack: () -> Unit) {
+    val services = LocalContext.current.services
+    val loader = rememberLoader(lotId) {
+        val d = services.store.loadLotData(lotId)
+        val resolution = PassResolver.effectivePlants(d.sessions, d.plants)
+        val samples = PassResolver.calibrationSamples(d.sessions, d.plants, d.manualCounts).samples
+        val plants = resolution.plants.map { (key, sides) ->
+            PlantVisible("${key.row}/${key.plantNumber}", sides.values.map { it.counts })
+        }
+        val estimate = LotEstimator.estimate(LotInput(d.lot.totalPlants, plants, samples, d.lot.cherriesPerKg))
+        val n = resolution.plants.values.firstOrNull()?.values?.firstOrNull()?.counts?.perClass?.size ?: 0
+        EstimateData(d.lot, resolution, estimate, services.classNames(n))
+    }
+    ScreenScaffold(stringResource(R.string.est_title), onBack) {
+        LoadView(loader) { d ->
+            val e = d.estimate
+            Text(d.lot.name, style = MaterialTheme.typography.titleLarge)
+            Text(
+                stringResource(
+                    when (e.status) {
+                        LotStatus.INSUFFICIENT_EVIDENCE -> R.string.est_status_INSUFFICIENT_EVIDENCE
+                        LotStatus.VISIBLE_ONLY -> R.string.est_status_VISIBLE_ONLY
+                        LotStatus.CALIBRATED -> R.string.est_status_CALIBRATED
+                    },
+                ),
+                style = MaterialTheme.typography.displaySmall,
+                color = if (e.status == LotStatus.CALIBRATED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            Text(Fmt.calibrationStatus(e.calibration.n, e.calibration.usable))
+
+            // Every figure carries its interval; null stays "sin dato" and is never shown as 0.
+            Text(stringResource(R.string.est_visited, e.plantsVisited))
+            Text(Fmt.coverage(e.plantsVisited, d.lot.totalPlants, e.coverage))
+            val vppRes = if (e.status == LotStatus.CALIBRATED) R.string.est_visible_per_plant_cal else R.string.est_visible_per_plant
+            Text(stringResource(vppRes, Fmt.estimateOrNoData(e.visiblePerPlant)))
+            Text(stringResource(R.string.est_total_cherries, Fmt.estimateOrNoData(e.totalCherries, 0)))
+            Text(stringResource(R.string.est_total_kg, Fmt.estimateOrNoData(e.totalKg, 1)))
+
+            val shares = e.maturityShare
+            if (shares == null) {
+                Text(stringResource(R.string.est_maturity_none))
+            } else {
+                Text(stringResource(R.string.est_maturity_title), style = MaterialTheme.typography.titleMedium)
+                shares.forEachIndexed { i, s ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("${d.classNames.getOrElse(i) { "Clase ${i + 1}" }}: ${Fmt.estimatePercent(s)}")
+                        LinearProgressIndicator(progress = { s.value.toFloat().coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
+                    }
+                }
+            }
+
+            Text(stringResource(R.string.est_walked_title), style = MaterialTheme.typography.titleMedium)
+            val byRow = d.resolution.plants.entries.groupBy { it.key.row }.toSortedMap()
+            if (byRow.isEmpty()) Text(stringResource(R.string.est_walked_none))
+            for ((row, entries) in byRow) {
+                val sideText = app.cuentapepas.core.session.Side.entries.mapNotNull { side ->
+                    val count = entries.count { side in it.value }
+                    if (count > 0) stringResource(R.string.est_walked_side, side.name, count) else null
+                }.joinToString(", ")
+                Text(stringResource(R.string.est_walked_line, row, sideText))
+            }
+
+            if (d.resolution.issues.isNotEmpty()) {
+                Text(stringResource(R.string.est_issues_title), style = MaterialTheme.typography.titleMedium)
+                for (issue in d.resolution.issues) Text(issue.message, color = MaterialTheme.colorScheme.error)
+            }
+            Text(stringResource(R.string.est_notes_title), style = MaterialTheme.typography.titleMedium)
+            for (note in e.notes) Text(note)
+        }
+    }
+}
