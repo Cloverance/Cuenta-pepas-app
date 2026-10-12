@@ -11,6 +11,8 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import logging
+import math
 import os
 import shutil
 import subprocess
@@ -47,6 +49,11 @@ TOL_TFLITE_FP32 = {"boxes": 1e-2, "scores": 1e-3}
 BOX_RTOL = 1e-4  # extra relative slack on box coordinates, see _max_diffs
 FP16_MAX_COUNT_DIFF = 2
 FP16_MIN_MEAN_IOU = 0.9
+FP16_MIN_CLASS_AGREEMENT = 0.95
+FP16_MAX_SCORE_DELTA = 0.05
+MATCH_IOU = 0.5
+
+log = logging.getLogger(__name__)
 # Detection agreement is gated at the default threshold; the lower one is informational (a barely trained model
 # may have no detection at all at 0.30).
 GATE_THRESHOLD = DEFAULT_SCORE_THRESHOLD
@@ -283,8 +290,18 @@ def detection_agreement(ref: list[list[Detection]], other: list[list[Detection]]
     """Per-image count differences and the mean best IoU of each reference detection against the other model."""
     count_diffs = [abs(len(r) - len(o)) for r, o in zip(ref, other)]
     best_ious = [max((_box_iou(d.box, e.box) for e in o), default=0.0) for r, o in zip(ref, other) for d in r]
+    agree, deltas = [], []
+    for r, o in zip(ref, other):
+        for d in r:
+            best = max(o, key=lambda e: _box_iou(d.box, e.box), default=None)
+            if best is not None and _box_iou(d.box, best.box) >= MATCH_IOU:
+                agree.append(best.cls == d.cls)
+                deltas.append(abs(best.score - d.score))
     return {"n_ref": sum(len(r) for r in ref), "n_other": sum(len(o) for o in other),
-            "max_count_diff": max(count_diffs), "mean_best_iou": float(np.mean(best_ious)) if best_ious else None}
+            "max_count_diff": max(count_diffs), "mean_best_iou": float(np.mean(best_ious)) if best_ious else None,
+            "n_matched": len(agree),
+            "class_agreement": float(np.mean(agree)) if agree else None,
+            "max_score_delta": float(max(deltas)) if deltas else None}
 
 
 def _merge(per_image: list[dict]) -> dict:
@@ -299,11 +316,13 @@ def run_parity(torch_run, onnx_run, fp32_run, fp16_run, images) -> dict:
     ref_dets: dict[float, list] = {t: [] for t in thresholds}
     fp16_dets: dict[float, list] = {t: [] for t in thresholds}
     finite = {"pytorch": True, "onnx": True, "tflite_fp32": True, "tflite_fp16": True}
+    n_gated_rows = 0
     for _, hwc in images:
         ref = torch_run(hwc)
         out_onnx, out32, out16 = onnx_run(hwc), fp32_run(hwc), fp16_run(hwc)
         for key, arr in (("pytorch", ref), ("onnx", out_onnx), ("tflite_fp32", out32), ("tflite_fp16", out16)):
             finite[key] = finite[key] and bool(np.isfinite(arr).all())
+        n_gated_rows += int((ref[:, 4] * ref[:, 5:].max(axis=1) >= INFO_THRESHOLD).sum())
         diffs["onnx"].append(_max_diffs(ref, out_onnx, TOL_ONNX))
         diffs["tflite_fp32"].append(_max_diffs(ref, out32, TOL_TFLITE_FP32))
         for t in thresholds:
@@ -311,6 +330,8 @@ def run_parity(torch_run, onnx_run, fp32_run, fp16_run, images) -> dict:
             fp16_dets[t].append(postprocess(out16, score_threshold=t, nms_iou=DEFAULT_NMS_IOU))
     return {
         "n_images": len(images),
+        "n_gated_rows": int(n_gated_rows),
+        "n_ref_detections": sum(len(d) for d in ref_dets[GATE_THRESHOLD]),
         "onnx_max_abs_diff": _merge(diffs["onnx"]),
         "tflite_fp32_max_abs_diff": _merge(diffs["tflite_fp32"]),
         "tflite_fp16_detections": {f"{t:.2f}": detection_agreement(ref_dets[t], fp16_dets[t]) for t in thresholds},
@@ -322,6 +343,11 @@ def run_parity(torch_run, onnx_run, fp32_run, fp16_run, images) -> dict:
 def check_parity(report: dict) -> list[str]:
     """Tolerance violations as readable messages (empty list = pass)."""
     problems = []
+    if not report.get("n_gated_rows"):
+        problems.append("parity is vacuous: no confident rows/detections; use images with cherries or a trained model")
+    elif not report.get("n_ref_detections"):
+        problems.append("parity is vacuous: no confident rows/detections; use images with cherries or a trained model "
+                        "(n_ref_detections=0)")
     for key, tol, label in (("onnx_max_abs_diff", TOL_ONNX, "ONNX"),
                             ("tflite_fp32_max_abs_diff", TOL_TFLITE_FP32, "TFLite fp32")):
         for what, ok in (("boxes", "box_ok"), ("scores", "score_ok")):
@@ -334,10 +360,16 @@ def check_parity(report: dict) -> list[str]:
                         f"(max {FP16_MAX_COUNT_DIFF})")
     if gate["mean_best_iou"] is not None and gate["mean_best_iou"] <= FP16_MIN_MEAN_IOU:
         problems.append(f"TFLite fp16 mean best IoU {gate['mean_best_iou']:.3f} <= {FP16_MIN_MEAN_IOU}")
+    if gate.get("n_ref", 0) > 0:
+        ca, sd = gate.get("class_agreement"), gate.get("max_score_delta")
+        if ca is None or ca < FP16_MIN_CLASS_AGREEMENT:
+            problems.append(f"TFLite fp16 class agreement {ca} < {FP16_MIN_CLASS_AGREEMENT} on matched detections")
+        if sd is None or sd > FP16_MAX_SCORE_DELTA:
+            problems.append(f"TFLite fp16 max score delta {sd} > {FP16_MAX_SCORE_DELTA} on matched detections")
     for key, label in (("pytorch_output_finite", "PyTorch"), ("onnx_output_finite", "ONNX"),
                        ("tflite_fp32_output_finite", "TFLite fp32"), ("tflite_fp16_output_finite", "TFLite fp16")):
-        if not report.get(key, True):
-            problems.append(f"{label} output contains NaN/Inf")
+        if report.get(key) is not True:
+            problems.append(f"{label} output contains NaN/Inf (or finite check missing)")
     return problems
 
 
@@ -350,6 +382,16 @@ def _rel(path: Path) -> str | None:
         return None
 
 
+def _finite(v) -> float | None:
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
 def read_metrics(run_dir: Path | None, ckpt: dict) -> tuple[dict[str, float], str]:
     """Real validation metrics only, missing keys omitted (never null: the app parses Map<String, Double>).
 
@@ -359,12 +401,22 @@ def read_metrics(run_dir: Path | None, ckpt: dict) -> tuple[dict[str, float], st
     """
     keys = ("val_map50", "val_map50_95")
     if run_dir is not None and (run_dir / "metrics.json").exists():
-        raw = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
-        return {k: float(raw[k]) for k in keys if raw.get(k) is not None}, "metrics.json"
-    best_ap = ckpt.get("best_ap") if isinstance(ckpt, dict) else None
+        try:
+            raw = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise ExportError(f"malformed metrics.json in {run_dir}: {e}") from e
+        if not isinstance(raw, dict):
+            raise ExportError(f"malformed metrics.json in {run_dir}: expected an object")
+        found = {}
+        for k in keys:
+            v = _finite(raw.get(k))
+            if v is not None:
+                found[k] = v
+        return found, "metrics.json" if found else "none"
+    best_ap = _finite(ckpt.get("best_ap")) if isinstance(ckpt, dict) else None
     if best_ap is not None:
-        return {"val_map50_95": float(best_ap)}, "checkpoint.best_ap"
-    return {}, "unavailable"
+        return {"val_map50_95": best_ap}, "checkpoint.best_ap"
+    return {}, "none"
 
 
 def build_model_json(*, training_run: str | None, metrics: dict, metrics_source: str, parity_report_sha256: str,
@@ -420,21 +472,40 @@ def _run_of(ckpt_path: Path) -> Path | None:
 
 
 def install_atomic(files: list[tuple[Path, str]], out: Path) -> None:
-    """Copy each (source, name) to `<out>/<name>.part`, then os.replace them in the given order (put model.json last).
+    """Copy each (source, name) to `<out>/<name>.part`, back up existing targets to `<name>.bak`, then os.replace
+    the parts in the given order (put model.json last).
 
-    On any error every `.part` file is removed and the error re-raised.
+    On any error the backups are restored, every `.part` is removed and the error re-raised; on success the
+    backups are removed.
     """
     out.mkdir(parents=True, exist_ok=True)
     parts = [out / f"{name}.part" for _, name in files]
+    targets = [out / name for _, name in files]
+    backups: dict[Path, Path] = {}
+    replaced: list[Path] = []
     try:
         for (src, _), part in zip(files, parts):
             shutil.copyfile(src, part)
-        for (_, name), part in zip(files, parts):
-            os.replace(part, out / name)
+        for t in targets:
+            if t.exists():
+                bak = t.with_name(t.name + ".bak")
+                shutil.copyfile(t, bak)
+                backups[t] = bak
+        for part, t in zip(parts, targets):
+            os.replace(part, t)
+            replaced.append(t)
     except BaseException:
         for part in parts:
             part.unlink(missing_ok=True)
+        for t in targets:
+            bak = backups.get(t)
+            if bak is not None and bak.exists():
+                os.replace(bak, t)
+            elif t in replaced:
+                t.unlink(missing_ok=True)  # did not exist before this install
         raise
+    for bak in backups.values():
+        bak.unlink(missing_ok=True)
 
 
 def export(cfg: ExportConfig) -> dict:
@@ -466,7 +537,7 @@ def export(cfg: ExportConfig) -> dict:
             fp32_run.close(), fp16_run.close(), onnx_run.close()
         problems = check_parity(report)
         if problems:
-            raise ExportError("parity check failed:\n  " + "\n  ".join(problems) + "\n" + json.dumps(report, indent=2))
+            raise ExportError("parity check failed:\n  " + "\n  ".join(problems) + "\n" + json.dumps(report, indent=2, allow_nan=False))
 
         metrics, metrics_source = read_metrics(run_dir, ckpt)
         training_run = _rel(run_dir) if run_dir is not None else None
@@ -478,22 +549,27 @@ def export(cfg: ExportConfig) -> dict:
             "tflite_output": {"name": fp32_run.output["name"], "shape": out_shape, "transposed": fp32_run.transposed},
             "tolerances": {"onnx": TOL_ONNX, "tflite_fp32": TOL_TFLITE_FP32, "box_relative": BOX_RTOL,
                            "gated_rows": f"reference score >= {INFO_THRESHOLD}",
-                           "fp16_max_count_diff": FP16_MAX_COUNT_DIFF, "fp16_min_mean_iou": FP16_MIN_MEAN_IOU},
+                           "fp16_max_count_diff": FP16_MAX_COUNT_DIFF, "fp16_min_mean_iou": FP16_MIN_MEAN_IOU,
+                           "fp16_min_class_agreement": FP16_MIN_CLASS_AGREEMENT,
+                           "fp16_max_score_delta": FP16_MAX_SCORE_DELTA},
             "parity_images": [name for name, _ in images],
         })
 
         report_dir = cfg.report_dir or (cfg.run / "export" if cfg.run is not None else ckpt_path.resolve().parent)
         report_dir.mkdir(parents=True, exist_ok=True)
         parity_path = report_dir / "parity.json"
-        parity_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
+        parity_path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8", newline="\n")
         model_json = build_model_json(training_run=training_run, metrics=metrics, metrics_source=metrics_source,
                                       parity_report_sha256=_sha256(parity_path), fp16=fp16, fp32=fp32,
                                       output_shape=out_shape, transposed=fp32_run.transposed)
         model_json_path = work / "model.json"
-        model_json_path.write_text(json.dumps(model_json, indent=2) + "\n", encoding="utf-8", newline="\n")
+        model_json_path.write_text(json.dumps(model_json, indent=2, allow_nan=False) + "\n", encoding="utf-8", newline="\n")
         report["parity_report_path"] = str(parity_path)
         install_atomic([(fp32, FP32_NAME), (fp16, FP16_NAME), (model_json_path, "model.json")], cfg.out)
         return report
     finally:
         gc.collect()
-        shutil.rmtree(work, ignore_errors=True)
+        try:
+            shutil.rmtree(work)
+        except OSError as e:
+            log.warning("could not remove scratch directory %s: %s", work, e)

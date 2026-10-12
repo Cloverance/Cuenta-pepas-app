@@ -21,11 +21,14 @@ def test_letterbox_landscape_pads_bottom():
 
 
 def _report(**over):
-    det = {"n_ref": 10, "n_other": 10, "max_count_diff": 0, "mean_best_iou": 0.99}
+    det = {"n_ref": 10, "n_other": 10, "max_count_diff": 0, "mean_best_iou": 0.99, "class_agreement": 1.0,
+           "max_score_delta": 0.01}
     ok = {"box_ok": True, "score_ok": True}
     report = {"onnx_max_abs_diff": {"boxes": 1e-5, "scores": 1e-6, **ok},
               "tflite_fp32_max_abs_diff": {"boxes": 1e-3, "scores": 1e-5, **ok},
-              "tflite_fp16_detections": {"0.30": det, "0.05": det}, "pytorch_output_finite": True}
+              "tflite_fp16_detections": {"0.30": det, "0.05": det}, "n_gated_rows": 20, "n_ref_detections": 10,
+              "pytorch_output_finite": True, "onnx_output_finite": True, "tflite_fp32_output_finite": True,
+              "tflite_fp16_output_finite": True}
     report.update(over)
     return report
 
@@ -33,14 +36,46 @@ def _report(**over):
 def test_check_parity_passes_within_tolerances_and_names_each_violation():
     assert export.check_parity(_report()) == []
     bad = _report(onnx_max_abs_diff={"boxes": 2e-3, "scores": 1e-6, "box_ok": False, "score_ok": True},
-                  tflite_fp16_detections={"0.30": {"max_count_diff": 3, "mean_best_iou": 0.5}})
+                  tflite_fp16_detections={"0.30": {"n_ref": 0, "max_count_diff": 3, "mean_best_iou": 0.5}})
     problems = export.check_parity(bad)
     assert len(problems) == 3 and any("ONNX boxes" in p for p in problems) and any("IoU" in p for p in problems)
 
 
-def test_check_parity_tolerates_no_detections():
+def test_check_parity_with_no_detections_is_vacuous_and_fails():
     empty = {"n_ref": 0, "n_other": 0, "max_count_diff": 0, "mean_best_iou": None}
-    assert export.check_parity(_report(tflite_fp16_detections={"0.30": empty, "0.05": empty})) == []
+    problems = export.check_parity(_report(tflite_fp16_detections={"0.30": empty, "0.05": empty},
+                                           n_gated_rows=0, n_ref_detections=0))
+    assert any("vacuous" in p for p in problems)
+    assert any("vacuous" in p for p in export.check_parity(_report(n_ref_detections=0)))
+
+
+def test_check_parity_fp16_class_agreement_and_score_delta():
+    det = {"n_ref": 10, "n_other": 10, "max_count_diff": 0, "mean_best_iou": 0.99, "class_agreement": 0.8,
+           "max_score_delta": 0.2}
+    problems = export.check_parity(_report(tflite_fp16_detections={"0.30": det, "0.05": det}))
+    assert len(problems) == 2 and any("class agreement" in p for p in problems) and any("score delta" in p for p in problems)
+
+
+def test_check_parity_missing_finite_key_fails():
+    r = _report()
+    del r["onnx_output_finite"]
+    assert any("ONNX" in p for p in export.check_parity(r))
+
+
+def test_detection_agreement_reports_class_and_score_on_matched():
+    def det(cls, score, x=0.0):
+        return export.Detection(box=(x, 0.0, x + 10, 10.0), score=score, cls=cls, class_probs=np.zeros(5))
+    r = export.detection_agreement([[det(0, 0.9), det(1, 0.8, 50)]], [[det(0, 0.88), det(2, 0.7, 50)]])
+    assert r["n_matched"] == 2 and r["class_agreement"] == 0.5 and abs(r["max_score_delta"] - 0.1) < 1e-9
+
+
+def test_read_metrics_drops_non_finite_and_rejects_malformed(tmp_path):
+    (tmp_path / "metrics.json").write_text('{"val_map50": NaN, "val_map50_95": Infinity}', encoding="utf-8")
+    assert export.read_metrics(tmp_path, {}) == ({}, "none")
+    (tmp_path / "metrics.json").write_text("{oops", encoding="utf-8")
+    with pytest.raises(export.ExportError, match="malformed"):
+        export.read_metrics(tmp_path, {})
+    assert export.read_metrics(None, {"best_ap": float("nan")}) == ({}, "none")
 
 
 def test_model_json_records_transposed_output_only_when_true(tmp_path):
@@ -59,7 +94,7 @@ def test_model_json_records_transposed_output_only_when_true(tmp_path):
 
 
 def test_metrics_are_never_fabricated(tmp_path):
-    assert export.read_metrics(None, {}) == ({}, "unavailable")
+    assert export.read_metrics(None, {}) == ({}, "none")
     assert export.read_metrics(tmp_path, {"best_ap": 0.25}) == ({"val_map50_95": 0.25}, "checkpoint.best_ap")
     (tmp_path / "metrics.json").write_text(json.dumps({"val_map50": 0.7, "val_map50_95": 0.4}), encoding="utf-8")
     assert export.read_metrics(tmp_path, {"best_ap": 0.25}) == ({"val_map50": 0.7, "val_map50_95": 0.4}, "metrics.json")
@@ -171,3 +206,34 @@ def test_check_parity_flags_nan_in_onnx_and_tflite_outputs():
     problems = export.check_parity(_report(onnx_output_finite=False, tflite_fp32_output_finite=False,
                                            tflite_fp16_output_finite=False))
     assert len(problems) == 3 and all("NaN/Inf" in p for p in problems)
+
+
+def test_install_atomic_restores_existing_files_when_replace_fails(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    out.mkdir()
+    for name in ("a.tflite", "b.tflite", "model.json"):
+        (out / name).write_text("old-" + name, encoding="utf-8")
+    real_replace = export.os.replace
+    n = []
+
+    def flaky(src, dst):
+        if str(src).endswith(".part"):
+            n.append(dst)
+            if len(n) == 2:
+                raise OSError("replace failed")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(export.os, "replace", flaky)
+    with pytest.raises(OSError, match="replace failed"):
+        export.install_atomic(_install_files(tmp_path), out)
+    assert sorted(p.name for p in out.iterdir()) == ["a.tflite", "b.tflite", "model.json"]
+    assert all((out / nm).read_text(encoding="utf-8") == "old-" + nm for nm in ("a.tflite", "b.tflite", "model.json"))
+
+
+def test_install_atomic_removes_backups_on_success(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "a.tflite").write_text("old", encoding="utf-8")
+    export.install_atomic(_install_files(tmp_path), out)
+    assert (out / "a.tflite").read_text(encoding="utf-8") == "a.tflite"
+    assert not list(out.glob("*.bak")) and not list(out.glob("*.part"))
