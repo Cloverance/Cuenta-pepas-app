@@ -1,6 +1,7 @@
 package app.cuentapepas.ui.bench
 
 import android.content.Context
+import app.cuentapepas.ui.common.describeError
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -80,7 +81,7 @@ data class BenchProgress(
 
 sealed class BenchOutcome {
     data class Done(val result: BenchResult, val file: File) : BenchOutcome()
-    data class Failed(val message: String) : BenchOutcome()
+    data class Failed(val message: String, val detail: String? = null) : BenchOutcome()
 }
 
 /**
@@ -105,7 +106,8 @@ class BenchmarkRunner(context: Context) {
             val outcome = try {
                 run(durationSec, preferGpu, onProgress)
             } catch (t: Throwable) {
-                BenchOutcome.Failed(t.message ?: t::class.java.simpleName)
+                val info = appContext.describeError(t)
+                BenchOutcome.Failed(info.message, info.detail)
             }
             onFinished(outcome)
         }

@@ -6,7 +6,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.SnackbarHostState
+import app.cuentapepas.data.PendingNotices
+import app.cuentapepas.ui.common.ErrorInfo
+import app.cuentapepas.ui.common.describeError
+import app.cuentapepas.ui.common.showError
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +47,8 @@ import java.util.UUID
 
 private class LotRow(val lot: Lot, val sessionCount: Int, val calibration: String?, val error: String?)
 
-/** Startup recovery notices are shown once per process, not on every visit to Home. */
-private var startupNoticeHandled = false
+/** The startup sweep result is recorded into the persisted notices once per process; showing them is separate. */
+private var startupRecorded = false
 
 @Composable
 fun HomeScreen(
@@ -72,34 +77,50 @@ fun HomeScreen(
     }
 
     var showNew by remember { mutableStateOf(false) }
-    var actionError by remember { mutableStateOf<String?>(null) }
-    var notice by remember { mutableStateOf<List<String>>(emptyList()) }
+    val snack = remember { SnackbarHostState() }
+    var noticeError by remember { mutableStateOf<ErrorInfo?>(null) }
+    var pending by remember { mutableStateOf(PendingNotices(emptyList(), emptyList())) }
 
+    // Record what this process's startup sweep found (once per process), then show what is still pending in the
+    // preferences: it stays on Home across restarts until the user dismisses it.
     LaunchedEffect(Unit) {
-        if (startupNoticeHandled) return@LaunchedEffect
         try {
-            val recovered = services.store.recoveredSessions()
-            val issues = services.store.startupIssues()
-            startupNoticeHandled = true
-            val lines = ArrayList<String>()
-            if (recovered.isNotEmpty()) lines += context.getString(R.string.home_notice_recovered, recovered.size)
-            for (i in issues) lines += context.getString(R.string.home_notice_corrupt, i.path)
-            notice = lines
+            if (!startupRecorded) {
+                val recovered = services.store.recoveredSessions()
+                val issues = services.store.startupIssues()
+                services.startupNotices.record(recovered, issues.map { it.path })
+                startupRecorded = true
+            }
+            pending = services.startupNotices.pending()
+            noticeError = null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            startupNoticeHandled = true
-            notice = listOf(context.describe(e))
+            noticeError = context.describeError(e)
         }
     }
 
-    ScreenScaffold(stringResource(R.string.home_title), onBack = null, actions = {
+    ScreenScaffold(stringResource(R.string.home_title), onBack = null, snackbar = snack, actions = {
         TextButton(onClick = onBench) { Text(stringResource(R.string.home_bench)) }
         TextButton(onClick = onSettings) { Text(stringResource(R.string.home_settings)) }
         TextButton(onClick = onAbout) { Text(stringResource(R.string.home_about)) }
     }) {
         Button(onClick = { showNew = true }) { Text(stringResource(R.string.home_new_lot)) }
-        actionError?.let { ErrorText(it) }
+        noticeError?.let { ErrorText(it.message, it.detail) }
+        if (!pending.isEmpty) {
+            StartupNoticeCard(pending, onDismiss = {
+                scope.launch {
+                    try {
+                        services.startupNotices.dismissAll()
+                        pending = PendingNotices(emptyList(), emptyList())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        snack.showError(context.describe(e), context.getString(R.string.snackbar_close))
+                    }
+                }
+            })
+        }
         LoadView(loader) { rows ->
             if (rows.isEmpty()) Text(stringResource(R.string.home_empty))
             for (row in rows) {
@@ -128,23 +149,30 @@ fun HomeScreen(
                     services.store.saveLot(
                         Lot(UUID.randomUUID().toString(), form.name, form.totalPlants, form.cherriesPerKg, System.currentTimeMillis()),
                     )
-                    actionError = null
                     loader.reload()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    actionError = context.describe(e)
+                    snack.showError(context.describe(e), context.getString(R.string.snackbar_close))
                 }
             }
         })
     }
+}
 
-    if (notice.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { notice = emptyList() },
-            title = { Text(stringResource(R.string.home_notice_title)) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { notice.forEach { Text(it) } } },
-            confirmButton = { TextButton(onClick = { notice = emptyList() }) { Text(stringResource(R.string.common_accept)) } },
-        )
+@Composable
+private fun StartupNoticeCard(pending: PendingNotices, onDismiss: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.home_notice_title), style = MaterialTheme.typography.titleMedium)
+            if (pending.recovered.isNotEmpty()) {
+                Text(stringResource(R.string.home_notice_recovered, pending.recovered.size))
+            }
+            for (path in pending.corrupt) Text(stringResource(R.string.home_notice_corrupt, path))
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.home_notice_dismiss)) }
+        }
     }
 }

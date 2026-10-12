@@ -8,6 +8,7 @@ import app.cuentapepas.core.session.PlantRecord
 import app.cuentapepas.core.session.SessionMeta
 import app.cuentapepas.core.session.SessionStats
 import app.cuentapepas.core.store.CorruptDataException
+import app.cuentapepas.core.store.CorruptSession
 import app.cuentapepas.core.store.FileSessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,10 +63,26 @@ class SessionStore(private val root: File) {
     suspend fun setManualCount(lotId: String, row: Int, plantNumber: Int, count: Int): ManualCount =
         io { setManualCount(lotId, row, plantNumber, count) }
 
+    /**
+     * Removes the hand count of a plant (every entry of it, one atomic rewrite): the plant then has no manual count.
+     * @return false when it had none. @throws app.cuentapepas.core.store.LotNotFoundException
+     */
+    suspend fun clearManualCount(lotId: String, row: Int, plantNumber: Int): Boolean =
+        io { clearManualCount(lotId, row, plantNumber) }
+
+    /** Sessions whose files are unreadable right now (left out of every listing), with their directory ids. */
+    suspend fun corruptSessions(): List<CorruptSession> = io { corruptSessionEntries() }
+
+    /** Deletes a corrupt session's directory (re-checked first). @return false when it is readable or unknown. */
+    suspend fun discardCorruptSession(sessionId: String): Boolean = io { discardCorruptSession(sessionId) }
+
+    /** Torn (truncated) GPS lines skipped when reading the track of the session. */
+    suspend fun gpsTornLines(sessionId: String): Int = io { gpsTornLines(sessionId) }
+
     /** Where the evaluation logger must write frames.jsonl for the session. */
     suspend fun framesFile(sessionId: String): File = io { framesFile(sessionId) }
 
-    /** Sessions the startup sweep marked ABANDONED (ids), so the UI can inform the user once. */
+    /** Sessions the startup sweep marked ABANDONED (ids), so the UI can inform the user (see [StartupNotices] for the persisted "until dismissed" state). */
     suspend fun recoveredSessions(): List<String> = io { recoveredSessions }
 
     /** Sessions the startup sweep could not read (corrupt meta); show them to the user. */

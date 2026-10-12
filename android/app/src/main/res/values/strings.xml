@@ -289,4 +289,39 @@
     <string name="live_video_interrupted">El video de evaluación se interrumpió al salir de la app</string>
     <string name="live_eval_log_error">No se pudo abrir el registro de evaluación: %1$s</string>
     <string name="live_background_paused">La sesión quedó en pausa al salir de la app. Pulse Continuar para seguir.</string>
+
+    <!-- fix-ui: error mapping, corrupt data, notices (append-only block) -->
+    <string name="error_technical_detail">Detalle técnico</string>
+    <string name="error_unexpected">Ocurrió un error inesperado. Si se repite, anote qué estaba haciendo y avise.</string>
+    <string name="error_invalid_argument">Hay datos que no son válidos. Revise lo que escribió e inténtelo de nuevo.</string>
+    <string name="error_invalid_state">La operación no se puede hacer en el estado actual.</string>
+    <string name="error_io">No se pudo leer o escribir un archivo del teléfono. Revise el espacio disponible e inténtelo de nuevo.</string>
+    <string name="error_session_missing">No se encontró el recorrido.</string>
+    <string name="error_contract">El modelo instalado no cumple el contrato que espera la app.</string>
+    <string name="error_models_mismatch">Los recorridos usan otro modelo o taxonomía de clases; no se pueden combinar. Descarte o repita los recorridos de otro modelo.</string>
+    <plurals name="corrupt_banner">
+        <item quantity="one">%1$d recorrido ilegible no se incluyó</item>
+        <item quantity="other">%1$d recorridos ilegibles no se incluyeron</item>
+    </plurals>
+    <string name="corrupt_view">Ver / descartar</string>
+    <string name="corrupt_list_title">Recorridos ilegibles</string>
+    <string name="corrupt_list_help">Estos recorridos no se pudieron leer y no cuentan en los resultados. Descartar borra su carpeta y no se puede deshacer.</string>
+    <string name="corrupt_discard">Descartar</string>
+    <string name="corrupt_discard_title">¿Descartar este recorrido?</string>
+    <string name="corrupt_discard_text">Se borrará la carpeta del recorrido %1$s con todos sus datos. No se puede deshacer.</string>
+    <string name="corrupt_discard_refused">El recorrido %1$s ya se puede leer o no existe; no se borró nada.</string>
+    <string name="corrupt_close">Cerrar</string>
+    <string name="home_notice_dismiss">Entendido</string>
+    <string name="class_names_unavailable_notice">Modelo no disponible: nombres genéricos de clase.</string>
+    <string name="class_names_mismatch_notice">El modelo actual tiene otro número de clases que estos datos: nombres genéricos de clase.</string>
+    <string name="cal_issues_title">Avisos al resolver los recorridos</string>
+    <string name="about_model_file">Archivo del modelo en uso: %1$s (%2$s)</string>
+    <string name="about_model_file_sha">SHA-256 declarado: %1$s</string>
+    <string name="about_parity_title">Paridad de la exportación (según model.json)</string>
+    <string name="about_model_limits_title">Limitaciones del modelo (según model.json)</string>
+    <string name="model_file_missing_error">No se pudo determinar el archivo del modelo: %1$s</string>
+    <string name="model_sha_mismatch">El archivo del modelo %1$s no coincide con la huella (SHA-256) declarada en model.json; está dañado o no es el exportado.</string>
+    <string name="model_file_undeclared">El archivo del modelo %1$s no figura en model.json.</string>
+    <string name="model_sha_malformed">La huella (SHA-256) de %1$s en model.json no es válida.</string>
+    <string name="snackbar_close">Cerrar</string>
 </resources>

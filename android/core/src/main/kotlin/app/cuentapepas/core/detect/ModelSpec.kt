@@ -3,6 +3,7 @@ package app.cuentapepas.core.detect
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
 /** Contract with the model, read from `assets/model/model.json` (written by Plan A, Task A6). */
 @Serializable
@@ -18,6 +19,10 @@ data class ModelSpec(
     /** Training metrics; a null value (e.g. NaN written as null by the exporter) must not make the model unloadable. */
     val metrics: Map<String, Double?> = emptyMap(),
     @SerialName("license_attribution") val licenseAttribution: String? = null,
+    /** Optional export parity report (free-form: text, list or object), shown as-is in the About screen. */
+    val parity: JsonElement? = null,
+    /** Optional known limitations of the model (free-form), shown as-is in the About screen. */
+    val limitations: JsonElement? = null,
 ) {
     @Serializable
     data class Input(

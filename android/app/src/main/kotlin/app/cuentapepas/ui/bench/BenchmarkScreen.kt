@@ -39,6 +39,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.cuentapepas.R
+import app.cuentapepas.ui.common.describe
+import app.cuentapepas.ui.common.ErrorText
 import java.io.File
 import java.util.Locale
 
@@ -133,14 +135,14 @@ fun BenchmarkScreen(onBack: () -> Unit) {
             }
 
             when (val o = outcome) {
-                is BenchOutcome.Failed -> Text(stringResource(R.string.bench_failed, o.message), color = MaterialTheme.colorScheme.error)
+                is BenchOutcome.Failed -> ErrorText(stringResource(R.string.bench_failed, o.message), o.detail)
                 is BenchOutcome.Done -> {
                     Results(o.result.summary, o.file) {
                         shareError = try {
                             share(context, o.file)
                             null
                         } catch (e: Exception) {
-                            context.getString(R.string.bench_share_failed, e.message ?: e::class.java.simpleName)
+                            context.getString(R.string.bench_share_failed, context.describe(e))
                         }
                     }
                     shareError?.let { Text(it, color = MaterialTheme.colorScheme.error) }

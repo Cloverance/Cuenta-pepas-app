@@ -239,7 +239,14 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
 
     // ---- gps ----
 
-    /** Appends to gps.jsonl (one JSON object per line) of an ACTIVE session. */
+    /**
+     * Appends to gps.jsonl (one JSON object per line) of an ACTIVE session.
+     *
+     * Known limitation: the bytes are written first and fsynced afterwards. If the fsync (or the write) fails the
+     * call throws [IOException] although part or all of [points] may already be in the file; a caller that retries the
+     * same batch can therefore store duplicate points (same timestamps). Readers must tolerate repeated points; none
+     * is ever lost or silently rewritten.
+     */
     fun appendGps(sessionId: String, points: List<GpsPoint>) = synchronized(lock) {
         val s = readMeta(sessionId)
         check(s.status == SessionStatus.ACTIVE) { "GPS points can only be appended while the session is ACTIVE (${s.status})" }
@@ -322,6 +329,22 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
     }
 
     /**
+     * Forgets the hand count of a plant: every entry of ([row], [plantNumber]) is removed from the lot's file with one
+     * atomic rewrite, so afterwards the plant has no manual count at all (it is "sin dato", not 0).
+     * @return true when something was removed, false when the plant had no manual count (nothing is written).
+     * @throws LotNotFoundException
+     */
+    fun clearManualCount(lotId: String, row: Int, plantNumber: Int): Boolean = synchronized(lock) {
+        requireLot(lotId)
+        val file = manualFile(lotId)
+        val all = readJson(file, ListSerializer(ManualCount.serializer())) ?: return@synchronized false
+        val kept = all.filterNot { it.row == row && it.plantNumber == plantNumber }
+        if (kept.size == all.size) return@synchronized false
+        writeJson(file, ListSerializer(ManualCount.serializer()), kept)
+        true
+    }
+
+    /**
      * Records the hand count of a whole plant. The entry is appended with `enteredAtMs` = now, forced to be later than
      * any earlier entry of the same plant so the latest always wins. Re-recording a pass never erases it.
      * @throws LotNotFoundException, IllegalArgumentException for a negative count.
@@ -383,6 +406,12 @@ class FileSessionStore(private val root: File, private val clock: () -> Long = S
     fun corruptSessions(): List<CorruptDataException> = synchronized(lock) {
         readAllMetas()
         corrupt.values.toList()
+    }
+
+    /** Like [corruptSessions] but with the id (directory name) of each session, which [discardCorruptSession] needs. */
+    fun corruptSessionEntries(): List<CorruptSession> = synchronized(lock) {
+        readAllMetas()
+        corrupt.map { (id, e) -> CorruptSession(id, e) }
     }
 
     /**

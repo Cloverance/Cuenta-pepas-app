@@ -11,6 +11,8 @@ import app.cuentapepas.core.format.Fmt
 import app.cuentapepas.core.session.CalibrationSet
 import app.cuentapepas.core.calibration.RatioCalibrator
 import app.cuentapepas.core.session.PassResolver
+import app.cuentapepas.core.session.ResolutionIssue
+import app.cuentapepas.ui.common.CorruptSessionsBanner
 import app.cuentapepas.ui.common.LoadView
 import app.cuentapepas.ui.common.ScreenScaffold
 import app.cuentapepas.ui.common.rememberLoader
@@ -19,7 +21,7 @@ import app.cuentapepas.ui.common.loadLotData
 
 private const val MIN_SAMPLES = 10
 
-private class CalData(val lotName: String, val set: CalibrationSet, val result: CalibrationResult)
+private class CalData(val lotName: String, val set: CalibrationSet, val result: CalibrationResult, val issues: List<ResolutionIssue>)
 
 @Composable
 fun CalibrationScreen(lotId: String, onBack: () -> Unit) {
@@ -27,9 +29,12 @@ fun CalibrationScreen(lotId: String, onBack: () -> Unit) {
     val loader = rememberLoader(lotId) {
         val d = services.store.loadLotData(lotId)
         val set = PassResolver.calibrationSamples(d.sessions, d.plants, d.manualCounts)
-        CalData(d.lot.name, set, RatioCalibrator.fit(set.samples, MIN_SAMPLES))
+        // Resolution anomalies (several COMPLETED passes, duplicate plants...) change which records feed the samples.
+        val issues = PassResolver.effectivePlants(d.sessions, d.plants).issues
+        CalData(d.lot.name, set, RatioCalibrator.fit(set.samples, MIN_SAMPLES), issues)
     }
     ScreenScaffold(stringResource(R.string.cal_title), onBack) {
+        CorruptSessionsBanner { loader.reload() }
         LoadView(loader) { d ->
             Text(d.lotName, style = MaterialTheme.typography.titleLarge)
             val r = d.result
@@ -48,6 +53,10 @@ fun CalibrationScreen(lotId: String, onBack: () -> Unit) {
             }
             Text(stringResource(R.string.cal_explain), style = MaterialTheme.typography.bodyMedium)
 
+            if (d.issues.isNotEmpty()) {
+                Text(stringResource(R.string.cal_issues_title), style = MaterialTheme.typography.titleMedium)
+                for (issue in d.issues) Text(issue.message, color = MaterialTheme.colorScheme.error)
+            }
             if (d.set.skipped.isNotEmpty()) {
                 Text(stringResource(R.string.cal_skipped_title), style = MaterialTheme.typography.titleMedium)
                 for (s in d.set.skipped) Text(stringResource(R.string.cal_skipped_line, s.plantId, s.reason))

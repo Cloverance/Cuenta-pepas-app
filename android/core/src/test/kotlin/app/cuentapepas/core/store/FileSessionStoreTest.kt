@@ -262,4 +262,36 @@ class FileSessionStoreTest {
         assertEquals("Nuevo", s.lots().single().name)
         assertTrue(tmp.root.walkTopDown().none { it.name.endsWith(".tmp") })
     }
+
+    @Test fun clearManualCountRemovesOnlyThatPlant() {
+        val s = store()
+        s.setManualCount("L1", 1, 4, 40)
+        s.setManualCount("L1", 1, 4, 44)
+        s.setManualCount("L1", 1, 5, 7)
+        assertTrue(s.clearManualCount("L1", 1, 4))
+        assertEquals(listOf(5), s.manualCounts("L1").map { it.plantNumber })
+        assertEquals(1, s.allManualCounts().size)
+        assertFalse(s.clearManualCount("L1", 1, 4)) // nothing left: no write, no error
+        assertTrue(s.clearManualCount("L1", 1, 5))
+        assertTrue(s.manualCounts("L1").isEmpty())
+        // Survives a reopen and the plant can be counted again.
+        val s2 = open()
+        assertTrue(s2.manualCounts("L1").isEmpty())
+        assertEquals(9, s2.setManualCount("L1", 1, 4, 9).count)
+        assertThrows(LotNotFoundException::class.java) { s2.clearManualCount("zz", 1, 4) }
+    }
+
+    @Test fun clearManualCountWithoutFileIsFalse() {
+        assertFalse(store().clearManualCount("L1", 1, 1))
+    }
+
+    @Test fun corruptSessionEntriesCarryTheDirectoryId() {
+        val s = store()
+        s.createSession(meta("a"))
+        File(tmp.root, "sessions/a/meta.json").writeText("garbage")
+        val e = s.corruptSessionEntries().single()
+        assertEquals("a", e.id)
+        assertTrue(s.discardCorruptSession(e.id))
+        assertTrue(s.corruptSessionEntries().isEmpty())
+    }
 }

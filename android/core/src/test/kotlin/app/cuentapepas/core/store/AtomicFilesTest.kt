@@ -29,4 +29,19 @@ class AtomicFilesTest {
         assertTrue(File(target, "keep.txt").exists())
         assertFalse(File(tmp.root, "t.tmp").exists())
     }
+
+    @Test fun atomicMoveRefusalIsReportedNotSilent() {
+        val target = File(tmp.root, "t2").apply { mkdirs() }
+        File(target, "keep.txt").writeText("x")
+        val seen = ArrayList<File>()
+        val before = AtomicFilesDiagnostics.fallbackCount
+        AtomicFilesDiagnostics.listener = { f, _ -> seen += f }
+        try {
+            assertThrows(IOException::class.java) { writeAtomic(target, "new".toByteArray()) }
+        } finally {
+            AtomicFilesDiagnostics.listener = null
+        }
+        assertTrue(AtomicFilesDiagnostics.fallbackCount > before)
+        assertEquals(listOf(target), seen)
+    }
 }

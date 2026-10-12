@@ -1,6 +1,16 @@
 package app.cuentapepas.ui.common
 
 import android.content.Context
+import android.util.Log
+import androidx.annotation.StringRes
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.mutableStateOf
+import app.cuentapepas.core.store.LotHasSessionsException
+import app.cuentapepas.core.store.SessionNotFoundException
+import app.cuentapepas.inference.TfliteDetector
+import java.io.IOException
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -44,21 +54,59 @@ import kotlinx.coroutines.withContext
 
 val Context.services: ServiceLocator get() = (applicationContext as CuentapepasApp).services
 
-/** Spanish, user-facing description of a failure. Typed exceptions get specific messages; nothing is hidden. */
-fun Context.describe(e: Throwable): String = when (e) {
-    is ModelMissingException -> getString(R.string.model_missing, e.assetPath)
-    is ModelInvalidException -> getString(R.string.model_invalid, e.message.orEmpty())
-    is ModelLoadException -> getString(R.string.model_load_failed, e.message.orEmpty())
-    is CorruptDataException -> getString(R.string.data_corrupt, e.path)
-    is DataIntegrityException -> getString(R.string.error_integrity, e.message.orEmpty())
-    is LotNotFoundException -> getString(R.string.error_lot_missing)
-    else -> getString(R.string.error_generic, e.message ?: e::class.java.simpleName)
+/** Thrown by screens when they already know the exact Spanish message to show (no technical detail). */
+class UserMessageException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/** A Spanish [message] for the user plus the optional technical [detail] (shown only in a collapsible line). */
+data class ErrorInfo(val message: String, val detail: String?)
+
+private const val LOG_TAG = "Cuentapepas"
+
+private fun technical(e: Throwable): String {
+    val parts = ArrayList<String>()
+    var t: Throwable? = e
+    var depth = 0
+    while (t != null && depth < 4) {
+        parts += "${t::class.java.simpleName}: ${t.message ?: "-"}"
+        t = t.cause
+        depth++
+    }
+    return parts.joinToString(" <- ")
 }
+
+/**
+ * Spanish, user-facing description of a failure plus its technical detail. Every call logs the error with its stack
+ * trace (tag "Cuentapepas"). Typed exceptions get specific messages; anything else gets a generic Spanish message
+ * and the original text goes to [ErrorInfo.detail], never to the main message.
+ */
+fun Context.describeError(e: Throwable): ErrorInfo {
+    Log.e(LOG_TAG, "Error mostrado al usuario: ${e.message}", e)
+    val detail = technical(e)
+    return when (e) {
+        is UserMessageException -> ErrorInfo(e.message.orEmpty(), e.cause?.let(::technical))
+        is ModelMissingException -> ErrorInfo(getString(R.string.model_missing, e.assetPath), detail)
+        is ModelInvalidException -> ErrorInfo(getString(R.string.model_invalid, e.message.orEmpty()), e.cause?.let(::technical))
+        is ModelLoadException -> ErrorInfo(getString(R.string.model_load_failed, e.message.orEmpty()), e.cause?.let(::technical))
+        is TfliteDetector.ContractViolation -> ErrorInfo(getString(R.string.error_contract), detail)
+        is CorruptDataException -> ErrorInfo(getString(R.string.data_corrupt, e.path), detail)
+        is DataIntegrityException -> ErrorInfo(getString(R.string.error_integrity, e.message.orEmpty()), detail)
+        is LotNotFoundException -> ErrorInfo(getString(R.string.error_lot_missing), detail)
+        is SessionNotFoundException -> ErrorInfo(getString(R.string.error_session_missing), detail)
+        is LotHasSessionsException -> ErrorInfo(e.message.orEmpty(), null) // already Spanish
+        is IllegalArgumentException -> ErrorInfo(getString(R.string.error_invalid_argument), detail)
+        is IllegalStateException -> ErrorInfo(getString(R.string.error_invalid_state), detail)
+        is IOException -> ErrorInfo(getString(R.string.error_io), detail)
+        else -> ErrorInfo(getString(R.string.error_unexpected), detail)
+    }
+}
+
+/** Main Spanish message of [describeError]. */
+fun Context.describe(e: Throwable): String = describeError(e).message
 
 sealed interface Load<out T> {
     data object Loading : Load<Nothing>
     data class Ok<T>(val value: T) : Load<T>
-    data class Failed(val message: String) : Load<Nothing>
+    data class Failed(val message: String, val detail: String? = null) : Load<Nothing>
 }
 
 class Loader<T>(val state: State<Load<T>>, val reload: () -> Unit)
@@ -74,7 +122,8 @@ fun <T> rememberLoader(key: Any?, block: suspend () -> T): Loader<T> {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Load.Failed(context.describe(e))
+            val info = context.describeError(e)
+            Load.Failed(info.message, info.detail)
         }
     }
     return remember(state) { Loader(state) { tick++ } }
@@ -88,16 +137,38 @@ fun <T> ColumnScope.LoadView(loader: Loader<T>, content: @Composable ColumnScope
             Text(stringResource(R.string.common_loading))
         }
         is Load.Failed -> {
-            ErrorText(s.message)
+            ErrorText(s.message, s.detail)
             Button(onClick = loader.reload) { Text(stringResource(R.string.common_retry)) }
         }
         is Load.Ok -> content(s.value)
     }
 }
 
+/** Red message; when [detail] is given it sits behind a collapsible "Detalle técnico" toggle. */
 @Composable
-fun ErrorText(message: String) {
-    Text(message, color = MaterialTheme.colorScheme.error)
+fun ErrorText(message: String, detail: String? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(message, color = MaterialTheme.colorScheme.error)
+        if (detail != null) {
+            var open by remember { mutableStateOf(false) }
+            TextButton(onClick = { open = !open }) {
+                Text(stringResource(R.string.error_technical_detail) + if (open) " ▲" else " ▼", style = MaterialTheme.typography.labelSmall)
+            }
+            if (open) Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Transient confirmation: auto-dismisses. */
+suspend fun SnackbarHostState.showInfo(message: String) {
+    currentSnackbarData?.dismiss()
+    showSnackbar(message, duration = SnackbarDuration.Short)
+}
+
+/** Transient error: stays until dismissed, so it cannot be missed. */
+suspend fun SnackbarHostState.showError(message: String, closeLabel: String) {
+    currentSnackbarData?.dismiss()
+    showSnackbar(message, actionLabel = closeLabel, withDismissAction = false, duration = SnackbarDuration.Indefinite)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,9 +177,11 @@ fun ScreenScaffold(
     title: String,
     onBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit = {},
+    snackbar: SnackbarHostState? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Scaffold(topBar = {
+    val host = snackbar ?: remember { SnackbarHostState() }
+    Scaffold(snackbarHost = { SnackbarHost(host) }, topBar = {
         TopAppBar(
             title = { Text(title) },
             navigationIcon = {
@@ -135,11 +208,22 @@ fun displayClassName(raw: String): String = when (raw) {
     else -> raw
 }
 
-/** Class names from the model contract, or generic names when the model is unavailable (lots stay viewable). */
-fun ServiceLocator.classNames(count: Int): List<String> =
+/** Class names plus, when they are generic, the string resource of the notice the screen must show. */
+class ClassNames(val names: List<String>, @StringRes val noticeRes: Int?)
+
+/** Class names from the model contract, or generic names (with a notice) when the model is unavailable or does not match. */
+fun ServiceLocator.classNamesInfo(count: Int): ClassNames =
     try {
-        modelSpec.classes.map(::displayClassName).takeIf { it.size == count }
-            ?: List(count) { "Clase ${it + 1}" }
+        val fromModel = modelSpec.classes.map(::displayClassName)
+        if (fromModel.size == count) {
+            ClassNames(fromModel, null)
+        } else {
+            ClassNames(List(count) { "Clase ${it + 1}" }, R.string.class_names_mismatch_notice)
+        }
     } catch (e: ModelException) {
-        List(count) { "Clase ${it + 1}" }
+        Log.w(LOG_TAG, "Modelo no disponible; se usan nombres de clase genéricos", e)
+        ClassNames(List(count) { "Clase ${it + 1}" }, R.string.class_names_unavailable_notice)
     }
+
+/** Names only; screens that can show a notice should use [classNamesInfo]. */
+fun ServiceLocator.classNames(count: Int): List<String> = classNamesInfo(count).names
