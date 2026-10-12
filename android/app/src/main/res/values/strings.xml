@@ -33,4 +33,35 @@
     <string name="export_share_title">Compartir sesión</string>
     <string name="data_corrupt">Datos corruptos en %1$s. No se modificaron; expórtelos o bórrelos manualmente.</string>
     <string name="sessions_recovered">%1$d sesión(es) quedaron interrumpidas y se marcaron como abandonadas.</string>
+    <!-- Benchmark en el dispositivo -->
+    <string name="bench_title">Benchmark sostenido</string>
+    <string name="bench_back">Volver</string>
+    <string name="bench_duration">Duración</string>
+    <string name="bench_minutes">%1$d min</string>
+    <string name="bench_delegate">Delegado</string>
+    <string name="bench_delegate_auto">Auto (GPU si es posible)</string>
+    <string name="bench_delegate_cpu">CPU</string>
+    <string name="bench_start">Iniciar</string>
+    <string name="bench_stop">Detener</string>
+    <string name="bench_share">Compartir resultados</string>
+    <string name="bench_no_real_images">Sin imágenes reales: se usa un cuadro sintético de ruido. Las latencias sirven, pero no hay detecciones reales.</string>
+    <string name="bench_running">Midiendo… %1$d s de %2$d s · delegado %3$s</string>
+    <string name="bench_preparing">Preparando el modelo y las imágenes…</string>
+    <string name="bench_chart_title">Latencia de inferencia (mediana cada 10 s, ms) contra tiempo</string>
+    <string name="bench_chart_empty">Aún no hay muestras (la primera llega a los 10 s).</string>
+    <string name="bench_failed">El benchmark falló: %1$s</string>
+    <string name="bench_stopped_partial">Detenido antes de tiempo: resultados parciales.</string>
+    <string name="bench_results">Resultados</string>
+    <string name="bench_res_latency">Latencia: mediana %1$s ms, p90 %2$s ms</string>
+    <string name="bench_res_fps">Cuadros por segundo (mediana): %1$s</string>
+    <string name="bench_res_trend">Primeros %1$d s: %2$s ms · últimos %1$d s: %3$s ms</string>
+    <string name="bench_res_battery">Batería: %1$s %% por hora</string>
+    <string name="bench_res_thermal">Estado térmico máximo: %1$s</string>
+    <string name="bench_res_delegate">Delegado usado: %1$s</string>
+    <string name="bench_res_fallback">Motivo de CPU: %1$s</string>
+    <string name="bench_res_device">Dispositivo: %1$s</string>
+    <string name="bench_res_model">Modelo: %1$s</string>
+    <string name="bench_res_file">Guardado en %1$s</string>
+    <string name="bench_no_data">sin dato</string>
+    <string name="bench_share_chooser">Compartir benchmark</string>
 </resources>
