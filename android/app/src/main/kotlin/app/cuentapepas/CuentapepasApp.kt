@@ -1,6 +1,9 @@
 package app.cuentapepas
 
 import android.app.Application
+import android.util.Log
+import app.cuentapepas.core.store.AtomicFilesDiagnostics
+import app.cuentapepas.data.StartupNotices
 import app.cuentapepas.core.detect.ModelSpec
 import app.cuentapepas.core.store.AppSettings
 import app.cuentapepas.data.Exporter
@@ -16,6 +19,9 @@ class CuentapepasApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AtomicFilesDiagnostics.listener = { file, cause ->
+            Log.w("Cuentapepas", "ATOMIC_MOVE no disponible para $file; se usó un reemplazo no atómico", cause)
+        }
         services = ServiceLocator(this)
     }
 }
@@ -26,6 +32,8 @@ class CuentapepasApp : Application() {
  */
 class ServiceLocator(private val app: Application) {
     val store: SessionStore by lazy { SessionStore(app) }
+
+    val startupNotices: StartupNotices by lazy { StartupNotices(app) }
 
     val modelSpec: ModelSpec by lazy { ModelAssets.loadSpec(app) }
 

@@ -23,7 +23,9 @@ import androidx.compose.ui.unit.dp
 import app.cuentapepas.R
 import app.cuentapepas.core.format.Fmt
 import app.cuentapepas.core.session.Lot
-import app.cuentapepas.ui.common.ErrorText
+import androidx.compose.material3.SnackbarHostState
+import app.cuentapepas.ui.common.CorruptSessionsBanner
+import app.cuentapepas.ui.common.showError
 import app.cuentapepas.ui.common.LoadView
 import app.cuentapepas.ui.common.ScreenScaffold
 import app.cuentapepas.ui.common.describe
@@ -48,14 +50,14 @@ fun LotScreen(
     val scope = rememberCoroutineScope()
     val loader = rememberLoader(lotId) { services.store.loadLotData(lotId) }
     var editing by remember { mutableStateOf<Lot?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val snack = remember { SnackbarHostState() }
 
-    ScreenScaffold("", onBack, actions = {
+    ScreenScaffold("", onBack, snackbar = snack, actions = {
         TextButton(onClick = { (loader.state.value as? app.cuentapepas.ui.common.Load.Ok)?.let { editing = it.value.lot } }) {
             Text(stringResource(R.string.lot_screen_edit))
         }
     }) {
-        error?.let { ErrorText(it) }
+        CorruptSessionsBanner { loader.reload() }
         LoadView(loader) { d ->
             Text(d.lot.name, style = MaterialTheme.typography.headlineSmall)
             Text(stringResource(R.string.lot_total_plants_line, d.lot.totalPlants?.toString() ?: Fmt.NO_DATA))
@@ -90,12 +92,11 @@ fun LotScreen(
             scope.launch {
                 try {
                     services.store.saveLot(lot.copy(name = form.name, totalPlants = form.totalPlants, cherriesPerKg = form.cherriesPerKg))
-                    error = null
                     loader.reload()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    error = context.describe(e)
+                    snack.showError(context.describe(e), context.getString(R.string.snackbar_close))
                 }
             }
         })

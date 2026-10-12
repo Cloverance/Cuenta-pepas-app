@@ -27,12 +27,17 @@ import app.cuentapepas.ui.common.loadLotData
 import app.cuentapepas.ui.common.rememberLoader
 import app.cuentapepas.ui.common.classNames
 import app.cuentapepas.ui.common.services
+import app.cuentapepas.ui.common.ClassNames
+import app.cuentapepas.ui.common.CorruptSessionsBanner
+import app.cuentapepas.ui.common.UserMessageException
+import app.cuentapepas.ui.common.classNamesInfo
 
-private class EstimateData(val lot: Lot, val resolution: Resolution, val estimate: LotEstimate, val classNames: List<String>)
+private class EstimateData(val lot: Lot, val resolution: Resolution, val estimate: LotEstimate, val classNames: ClassNames)
 
 @Composable
 fun LotEstimateScreen(lotId: String, onBack: () -> Unit) {
-    val services = LocalContext.current.services
+    val context = LocalContext.current
+    val services = context.services
     val loader = rememberLoader(lotId) {
         val d = services.store.loadLotData(lotId)
         val resolution = PassResolver.effectivePlants(d.sessions, d.plants)
@@ -40,13 +45,21 @@ fun LotEstimateScreen(lotId: String, onBack: () -> Unit) {
         val plants = resolution.plants.map { (key, sides) ->
             PlantVisible("${key.row}/${key.plantNumber}", sides.values.map { it.counts })
         }
-        val estimate = LotEstimator.estimate(LotInput(d.lot.totalPlants, plants, samples, d.lot.cherriesPerKg))
-        val n = resolution.plants.values.firstOrNull()?.values?.firstOrNull()?.counts?.perClass?.size ?: 0
-        EstimateData(d.lot, resolution, estimate, services.classNames(n))
+        val classSizes = resolution.plants.values.flatMap { it.values }.map { it.counts.perClass.size }.toSet()
+        if (classSizes.size > 1) throw UserMessageException(context.getString(R.string.error_models_mismatch))
+        val estimate = try {
+            LotEstimator.estimate(LotInput(d.lot.totalPlants, plants, samples, d.lot.cherriesPerKg))
+        } catch (e: IllegalArgumentException) {
+            // Class-count mismatch between plants and calibration samples (or another model/taxonomy mix-up).
+            throw UserMessageException(context.getString(R.string.error_models_mismatch), e)
+        }
+        EstimateData(d.lot, resolution, estimate, services.classNamesInfo(classSizes.firstOrNull() ?: 0))
     }
     ScreenScaffold(stringResource(R.string.est_title), onBack) {
+        CorruptSessionsBanner { loader.reload() }
         LoadView(loader) { d ->
             val e = d.estimate
+            d.classNames.noticeRes?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
             Text(d.lot.name, style = MaterialTheme.typography.titleLarge)
             Text(
                 stringResource(
@@ -76,7 +89,7 @@ fun LotEstimateScreen(lotId: String, onBack: () -> Unit) {
                 Text(stringResource(R.string.est_maturity_title), style = MaterialTheme.typography.titleMedium)
                 shares.forEachIndexed { i, s ->
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("${d.classNames.getOrElse(i) { "Clase ${i + 1}" }}: ${Fmt.estimatePercent(s)}")
+                        Text("${d.classNames.names.getOrElse(i) { "Clase ${i + 1}" }}: ${Fmt.estimatePercent(s)}")
                         LinearProgressIndicator(progress = { s.value.toFloat().coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
                     }
                 }

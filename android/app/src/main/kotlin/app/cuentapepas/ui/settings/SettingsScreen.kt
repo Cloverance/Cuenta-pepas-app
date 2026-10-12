@@ -23,7 +23,10 @@ import androidx.compose.ui.unit.dp
 import app.cuentapepas.R
 import app.cuentapepas.core.store.AppSettings
 import app.cuentapepas.core.store.CorruptDataException
-import app.cuentapepas.ui.common.ErrorText
+import android.util.Log
+import androidx.compose.material3.SnackbarHostState
+import app.cuentapepas.ui.common.showError
+import app.cuentapepas.ui.common.showInfo
 import app.cuentapepas.ui.common.LoadView
 import app.cuentapepas.ui.common.ScreenScaffold
 import app.cuentapepas.ui.common.describe
@@ -73,13 +76,12 @@ fun SettingsScreen(onBack: () -> Unit) {
         val s = services.settings.load()
         Loaded(s, s.snapshot())
     }
-    var message by remember { mutableStateOf<String?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val snack = remember { SnackbarHostState() }
+    val close = stringResource(R.string.snackbar_close)
 
-    ScreenScaffold(stringResource(R.string.settings_title), onBack) {
+    // Results appear in the snackbar (visible above the bottom buttons that triggered them), not at the page top.
+    ScreenScaffold(stringResource(R.string.settings_title), onBack, snackbar = snack) {
         Text(stringResource(R.string.settings_note), style = MaterialTheme.typography.bodyMedium)
-        message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-        error?.let { ErrorText(it) }
         LoadView(loader) { loaded ->
             val values = remember(loaded) { mutableStateMapOf<String, String>().apply { putAll(loaded.values) } }
             for (f in FIELDS) {
@@ -108,23 +110,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                             val normalized = values.mapValues { it.value.trim().replace(',', '.') }
                             val parsed = AppSettings.fromMap(normalized, loaded.base)
                             withContext(Dispatchers.IO) { services.settings.save(parsed) }
-                            error = null
-                            message = context.getString(R.string.settings_saved)
+                            snack.showInfo(context.getString(R.string.settings_saved))
                             loader.reload()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: CorruptDataException) {
-                            message = null
+                            Log.e("Cuentapepas", "Ajustes no válidos", e)
                             val key = e.path.removePrefix("settings:")
                             val label = FIELDS.firstOrNull { it.key == key }?.label
-                            error = if (label != null) {
-                                context.getString(R.string.settings_invalid, label, e.message.orEmpty())
-                            } else {
-                                e.message.orEmpty()
-                            }
+                            snack.showError(
+                                if (label != null) {
+                                    context.getString(R.string.settings_invalid, label, e.message.orEmpty())
+                                } else {
+                                    e.message.orEmpty()
+                                },
+                                close,
+                            )
                         } catch (e: Exception) {
-                            message = null
-                            error = context.describe(e)
+                            snack.showError(context.describe(e), close)
                         }
                     }
                 }) { Text(stringResource(R.string.common_save)) }
@@ -132,14 +135,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) { services.settings.reset() }
-                            error = null
-                            message = context.getString(R.string.settings_reset_done)
+                            snack.showInfo(context.getString(R.string.settings_reset_done))
                             loader.reload()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            message = null
-                            error = context.describe(e)
+                            snack.showError(context.describe(e), close)
                         }
                     }
                 }) { Text(stringResource(R.string.settings_reset)) }
