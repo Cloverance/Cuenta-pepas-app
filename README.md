@@ -1,25 +1,62 @@
 # Cuentapepas
 
-Cuentapepas cuenta pepas de café en video. Un celular recorre el surco caminando y la app detecta, sigue y clasifica por madurez cada pepa visible, para estimar la cosecha por planta y por lote. Todo corre sin conexión en un Android (Samsung Galaxy S22+ como dispositivo de referencia).
+**Cuentapepas** es una app para celular Android que cuenta y clasifica las pepas de café mientras caminas por el cultivo, grabando video con el celular.
 
-## Estado
+## ¿Qué hace?
 
-- **Versión:** v0.1, en prueba de campo.
-- **Datos de entrenamiento:** el modelo se entrena solo con datos de Uganda (Croppie coffee UG, CC BY-SA 4.0).
-- **Datos colombianos:** todavía no hay. El modelo no se ha evaluado en fincas colombianas.
-- **Cifras:** la app muestra "pepas visibles" hasta que exista una calibración con conteo manual. Ver [Principios de honestidad](#principios-de-honestidad).
+Caminas por el surco grabando con el celular (o la app graba mientras caminas), y Cuentapepas:
 
-## Principios de honestidad
+1. **Detecta** cada pepa de café visible en el video.
+2. **Las sigue** de un fotograma a otro, para no contar la misma pepa dos veces.
+3. **Clasifica su madurez** (verde, pintona, madura, etc.).
+4. Al final, te muestra un **estimado de cuántas pepas viste** por planta y por lote recorrido.
 
-Estos principios vienen de la especificación (§2) y de [ADR-0008](docs/adr/0008-politica-de-evidencia.md):
+Todo esto corre **directamente en el celular, sin necesidad de internet** — no sube video ni fotos a ningún servidor.
 
-1. **Sin calibración no hay cosecha.** Mientras no exista un factor calibrado con su intervalo, toda cifra es "pepas visibles", no pepas reales ni kilos.
-2. **Siempre con intervalo.** Ningún conteo, factor ni cosecha se reporta como un número suelto.
-3. **No se interpola.** Lo que no se recorrió o no se muestreó queda como "sin dato". Ausencia de dato no es cero.
-4. **Mínimos de evidencia.** Con menos de 10 plantas recorridas o de muestra, la app muestra "evidencia insuficiente" en lugar de una estimación.
-5. **Cobertura visible.** Cada estimación de lote muestra cuántas plantas, surcos y lados se recorrieron.
+## ¿Para qué sirve?
 
-## Arquitectura
+Para tener una idea rápida de cuánto café hay listo o por madurar en un lote, sin tener que contar pepa por pepa a mano. Es útil para:
+
+- Estimar cuándo conviene empezar la cosecha.
+- Comparar la carga de café entre distintos lotes o plantas.
+- Llevar un registro a lo largo del tiempo de cómo va madurando el cultivo.
+
+## ¿Qué tan confiables son los números?
+
+Esta es una app en **fase de prueba (v0.1)**, y es honesta sobre sus límites:
+
+- Por ahora muestra **"pepas visibles"**, no "pepas reales" ni kilos de café. Es decir: cuenta lo que la cámara logra ver, que puede ser menos de lo que realmente hay en la planta (pepas tapadas por hojas, por ejemplo).
+- El modelo que detecta las pepas **se entrenó con fotos de cultivos en Uganda**, todavía no con fotos de fincas colombianas. Puede que en cultivos de Colombia funcione distinto a lo esperado.
+- Si recorriste muy pocas plantas, la app te avisa que **no hay evidencia suficiente** en vez de inventarse un número.
+- Nunca te da "un número seco": siempre viene acompañado de un rango (intervalo) y de cuánto se recorrió realmente.
+
+En corto: la app prefiere decir "no sé" o "esto es un estimado con este margen de error" antes que dar una cifra que suene exacta pero no lo sea.
+
+## Cómo instalar el APK en tu celular
+
+1. Entra a la página de **[Releases](https://github.com/Cloverance/Cuenta-pepas-app/releases)** de este repositorio.
+2. Descarga el archivo que termina en `.apk` de la versión más reciente (por ejemplo `Cuentapepas-v0.1.0-debug.apk`).
+3. Abre el archivo descargado en tu celular (usualmente queda en la carpeta "Descargas").
+4. Android te va a preguntar algo como *"¿Instalar apps de fuentes desconocidas?"* — esto pasa porque la app no viene de Google Play, es normal en apps de prueba. Acepta y permite la instalación.
+5. Abre la app y acepta los permisos que pida (cámara, y ubicación si la usa para marcar dónde se grabó).
+
+**Requisitos:** un celular Android 8.0 o más reciente. Se probó principalmente en un Samsung Galaxy S22+.
+
+> Nota: esta es una versión de **prueba (debug)**, pensada para validar la app en campo — todavía no está en Google Play.
+
+## Cómo usarla
+
+1. Abre la app en el cultivo, en el surco que quieras evaluar.
+2. Dale a grabar y camina por el surco apuntando la cámara hacia las plantas, a un ritmo constante.
+3. Al terminar, detén la grabación.
+4. La app procesa el video y te muestra cuántas pepas detectó, por nivel de madurez, junto con cuántas plantas/surcos cubriste.
+5. Puedes exportar esa información (sesión en JSON) para guardarla o compararla después.
+
+## Para quién quiera meterse más a fondo (desarrollo técnico)
+
+Lo de abajo es para quien quiera compilar la app, entrenar el modelo o entender cómo está construida por dentro.
+
+### Arquitectura
 
 ```
 ml/                 pipeline Python (uv, Python 3.12): datos, entrenamiento, exportación, evaluación
@@ -35,7 +72,7 @@ tools/              scripts de entorno, instalación y entrenamiento
 
 El detector va detrás de una interfaz para poder cambiarlo ([ADR-0004](docs/adr/0004-detector-yolox.md)). El tracker es propio y está escrito para portarse de Python a Kotlin ([ADR-0005](docs/adr/0005-tracker-propio-estilo-bytetrack.md)).
 
-## Entorno aislado
+### Entorno aislado
 
 Todo el entorno vive dentro de la carpeta del proyecto, en `.tools/`: JDK 17, SDK de Android, Gradle, el entorno de Python, cachés, datos temporales y secretos. Nada se instala en C:.
 
@@ -52,7 +89,7 @@ Todo el entorno vive dentro de la carpeta del proyecto, en `.tools/`: JDK 17, SD
 
 Las claves de API (por ejemplo, la de Roboflow) van en `.tools/secrets.env`, que está excluido de git. Lo carga automáticamente `env.sh` o `env.ps1`.
 
-## Flujo de aprendizaje automático
+### Flujo de aprendizaje automático
 
 Desde `ml/`, con el entorno cargado. Los comandos usan `uv run --no-sync`, como en `tools/train-detached.ps1`.
 
@@ -72,7 +109,7 @@ bash tools/setup-yolox.sh      # clona YOLOX en la versión fijada y aplica los 
 bash tools/get-pretrained.sh   # descarga yolox_nano_coco.pth y verifica su sha256
 ```
 
-### Entrenamiento desacoplado
+#### Entrenamiento desacoplado
 
 Un entrenamiento largo no debe depender de la terminal ni de la sesión. `tools/train-detached.ps1` corre `cuentapepas train` en segundo plano, pide a Windows que no suspenda el equipo mientras corre y escribe su registro en `.tools/train-main.log`. Se lanza con `Win32_Process` como indica el encabezado del script:
 
@@ -85,7 +122,7 @@ Los parámetros son `-Epochs`, `-Batch` y `-Workers`.
 
 Las pruebas del pipeline se corren con `uv run --no-sync pytest -q` desde `ml/`.
 
-## Compilar el APK
+### Compilar el APK tú mismo
 
 Con el entorno cargado (`source tools/env.sh` o `. .\tools\env.ps1`):
 
@@ -104,7 +141,7 @@ El APK de depuración queda en `android/app/build/outputs/apk/debug/app-debug.ap
 
 La política de licencias prohíbe en lo distribuido YOLOv8/YOLOv11 de Ultralytics (AGPL-3.0), YOLOv9 oficial (GPL-3.0), BoxMOT (AGPL-3.0) y datos sin licencia.
 
-## Documentación
+## Documentación técnica
 
 - **Especificación de la Fase 0:** [docs/superpowers/specs/2026-10-11-fase0-factibilidad-conteo-design.md](docs/superpowers/specs/2026-10-11-fase0-factibilidad-conteo-design.md). Incluye principios, decisiones, taxonomía, datos, evaluación y el alcance de la app v1 (§14).
 - **Plan del modelo de ML:** [docs/superpowers/plans/2026-10-11-plan-a-modelo-ml.md](docs/superpowers/plans/2026-10-11-plan-a-modelo-ml.md).
